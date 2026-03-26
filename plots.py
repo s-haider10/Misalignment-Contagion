@@ -1,9 +1,15 @@
 """
-plots.py — Generate 6 publication-quality figures for the Misalignment Contagion experiment.
+plots.py — Generate publication-quality figures for the Misalignment Contagion experiment.
 
-Figures saved to analysis/ as both PDF and PNG (dpi=300).
+Usage:
+  python plots.py                          # default: primary phase
+  python plots.py --phase primary_em       # EM phase
+  python plots.py --phase primary_em --results-file results/primary_em.jsonl --analysis-dir analysis_em
+
+Figures saved as both PDF and PNG (dpi=300).
 """
 
+import argparse
 import json
 import os
 import math
@@ -19,13 +25,15 @@ import seaborn as sns
 
 warnings.filterwarnings("ignore")
 
-# ── paths ─────────────────────────────────────────────────────────────────────
+# ── paths (defaults, overridden by CLI) ───────────────────────────────────────
 REPO = os.path.dirname(os.path.abspath(__file__))
 RESULTS_FILE = os.path.join(REPO, "results", "primary.jsonl")
 CR_TABLE = os.path.join(REPO, "analysis", "cr_table.csv")
 DELTA_CC_TABLE = os.path.join(REPO, "analysis", "delta_cc_table.csv")
 DTW_TABLE = os.path.join(REPO, "analysis", "dtw_table.csv")
+LOGPROB_EV_TABLE = os.path.join(REPO, "analysis", "logprob_ev_table.csv")
 OUT_DIR = os.path.join(REPO, "analysis")
+PHASE_LABEL = "Prompt-Induced"
 
 # ── style constants ────────────────────────────────────────────────────────────
 TOPO_COLORS = {
@@ -465,11 +473,178 @@ def fig6_star_position():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Figure 7 — Logprob EV shift bar chart (final and shadow shifts by topology)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fig7_ev_shift_bars():
+    print("Generating fig7_ev_shift_bars …")
+
+    df = pd.read_csv(LOGPROB_EV_TABLE)
+    # Filter ratio=0.2, pos=0 for clean comparison
+    sub = df[(df["minority_ratio"] == 0.2) & (df["position_config"] == 0)].copy()
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    fig.patch.set_facecolor("white")
+
+    bar_w = 0.32
+    x = np.arange(len(TOPO_ORDER))
+    shift_colors = {"Final": "#2171B5", "Shadow": "#C44E52"}
+
+    for i, (label, col) in enumerate(
+        [("Final", "shift_final"), ("Shadow", "shift_shadow")]
+    ):
+        offset = (i - 0.5) * bar_w
+        vals = []
+        for topo in TOPO_ORDER:
+            row = sub[sub["topology"] == topo]
+            vals.append(float(row[col].values[0]) if len(row) else 0.0)
+        ax.bar(x + offset, vals, width=bar_w * 0.9,
+               color=shift_colors[label], label=f"{label} shift",
+               edgecolor="white", linewidth=0.4)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([TOPO_LABELS[t] for t in TOPO_ORDER], fontsize=9)
+    ax.set_ylabel("Logprob EV Shift (from baseline)", fontsize=11)
+    ax.set_xlabel("Topology", fontsize=11)
+    ax.set_title(f"Logprob EV Shift — {PHASE_LABEL}, minority ratio 0.2",
+                 fontsize=11, pad=8)
+    ax.legend(fontsize=9, frameon=False, loc="upper right")
+    ax.spines["bottom"].set_color("#AAAAAA")
+    ax.spines["left"].set_color("#AAAAAA")
+
+    fig.tight_layout()
+    save(fig, "fig7_ev_shift_bars")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Figure 8 — Logprob EV shift heatmap (topology × ratio)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fig8_ev_shift_heatmap():
+    print("Generating fig8_ev_shift_heatmap …")
+
+    df = pd.read_csv(LOGPROB_EV_TABLE)
+    # Use pos=0 for all topologies
+    sub = df[df["position_config"] == 0].copy()
+
+    ratios = [0.1, 0.2, 0.3]
+    ratio_labels = ["10%", "20%", "30%"]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+    fig.patch.set_facecolor("white")
+
+    for ax_idx, (col, title_suffix) in enumerate(
+        [("shift_final", "Final Round"), ("shift_shadow", "Shadow (Private)")]
+    ):
+        matrix = np.zeros((len(TOPO_ORDER), len(ratios)))
+        for ri, ratio in enumerate(ratios):
+            for ti, topo in enumerate(TOPO_ORDER):
+                row = sub[(sub["topology"] == topo) & (sub["minority_ratio"] == ratio)]
+                matrix[ti, ri] = float(row[col].values[0]) if len(row) else 0.0
+
+        ax = axes[ax_idx]
+        im = ax.imshow(matrix, aspect="auto", cmap="YlOrRd",
+                       vmin=0, vmax=matrix.max() * 1.1,
+                       interpolation="nearest")
+
+        for ti in range(len(TOPO_ORDER)):
+            for ri in range(len(ratios)):
+                val = matrix[ti, ri]
+                txt_color = "white" if val > matrix.max() * 0.65 else "black"
+                ax.text(ri, ti, f"{val:+.2f}", ha="center", va="center",
+                        fontsize=9, color=txt_color, fontweight="bold")
+
+        ax.set_xticks(range(len(ratios)))
+        ax.set_xticklabels(ratio_labels, fontsize=9)
+        ax.set_yticks(range(len(TOPO_ORDER)))
+        ax.set_yticklabels([TOPO_LABELS[t] for t in TOPO_ORDER], fontsize=9)
+        ax.set_xlabel("Minority Ratio", fontsize=10)
+        ax.set_ylabel("Topology", fontsize=10)
+        ax.set_title(f"EV Shift — {title_suffix}", fontsize=11, pad=8)
+        ax.grid(False)
+        ax.spines[:].set_visible(False)
+
+        cbar = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.04)
+        cbar.set_label("EV shift", fontsize=8)
+        cbar.ax.tick_params(labelsize=7)
+
+    fig.suptitle(f"Logprob EV Shift by Topology and Ratio — {PHASE_LABEL}",
+                 fontsize=12, y=1.02)
+    fig.tight_layout()
+    save(fig, "fig8_ev_shift_heatmap")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Figure 9 — Baseline vs Shadow EV scatter (internalization diagnostic)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fig9_baseline_shadow_scatter(trials):
+    print("Generating fig9_baseline_shadow_scatter …")
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    fig.patch.set_facecolor("white")
+
+    for topo in TOPO_ORDER:
+        recs = list(aligned_records(trials, topology=topo,
+                                    minority_ratio=0.2, position_config=0))
+        if not recs:
+            continue
+        bx = [r["baseline_ev"] for r in recs]
+        sy = [r["shadow_ev"] for r in recs]
+        ax.scatter(bx, sy, s=8, alpha=0.35, color=TOPO_COLORS[topo],
+                   label=TOPO_LABELS[topo], edgecolors="none")
+
+    ax.plot([1, 7], [1, 7], "--", color="#999999", linewidth=1, label="No shift")
+    ax.set_xlabel("Baseline EV", fontsize=11)
+    ax.set_ylabel("Shadow EV (private)", fontsize=11)
+    ax.set_title(f"Internalization Diagnostic — {PHASE_LABEL}, ratio 0.2",
+                 fontsize=11, pad=8)
+    ax.set_xlim(0.5, 7.5)
+    ax.set_ylim(0.5, 7.5)
+    ax.set_aspect("equal")
+    ax.legend(fontsize=8, frameon=False, loc="upper left")
+    ax.spines["bottom"].set_color("#AAAAAA")
+    ax.spines["left"].set_color("#AAAAAA")
+
+    fig.tight_layout()
+    save(fig, "fig9_baseline_shadow_scatter")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Main
 # ══════════════════════════════════════════════════════════════════════════════
 
+def parse_args():
+    p = argparse.ArgumentParser(description="Generate experiment plots")
+    p.add_argument("--phase", default="primary",
+                   choices=["primary", "primary_em"],
+                   help="Experiment phase (default: primary).")
+    p.add_argument("--results-file", default=None,
+                   help="Path to JSONL results file.")
+    p.add_argument("--analysis-dir", default=None,
+                   help="Directory with analysis CSVs and for output.")
+    return p.parse_args()
+
+
 if __name__ == "__main__":
-    print("Loading trials …")
+    args = parse_args()
+
+    # Configure paths based on phase
+    phase = args.phase
+    analysis_dir = args.analysis_dir or os.path.join(REPO, "analysis_em" if phase == "primary_em" else "analysis")
+    results_file = args.results_file or os.path.join(REPO, "results", f"{phase}.jsonl")
+
+    RESULTS_FILE = results_file
+    CR_TABLE = os.path.join(analysis_dir, "cr_table.csv")
+    DELTA_CC_TABLE = os.path.join(analysis_dir, "delta_cc_table.csv")
+    DTW_TABLE = os.path.join(analysis_dir, "dtw_table.csv")
+    LOGPROB_EV_TABLE = os.path.join(analysis_dir, "logprob_ev_table.csv")
+    OUT_DIR = analysis_dir
+    PHASE_LABEL = "Emergently Misaligned" if phase == "primary_em" else "Prompt-Induced"
+
+    os.makedirs(OUT_DIR, exist_ok=True)
+
+    print(f"Loading trials from {RESULTS_FILE} …")
     trials = load_trials()
     print(f"  Loaded {len(trials)} trials.\n")
 
@@ -479,5 +654,8 @@ if __name__ == "__main__":
     fig4_delta_cc()
     fig5_round_trajectory(trials)
     fig6_star_position()
+    fig7_ev_shift_bars()
+    fig8_ev_shift_heatmap()
+    fig9_baseline_shadow_scatter(trials)
 
-    print("\nAll figures saved to", OUT_DIR)
+    print(f"\nAll figures saved to {OUT_DIR}")

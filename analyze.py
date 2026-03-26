@@ -43,6 +43,13 @@ def load_trials(pattern: str) -> list[dict]:
     return trials
 
 
+def _probs_to_ev(probs: dict | None) -> float | None:
+    """Compute expected value from a {\"1\": p, ..., \"7\": p} probability dict."""
+    if not probs:
+        return None
+    return sum(int(k) * v for k, v in probs.items())
+
+
 def trials_to_dataframe(trials: list[dict]) -> pd.DataFrame:
     """Flatten trials into one row per aligned agent per trial."""
     rows = []
@@ -50,6 +57,7 @@ def trials_to_dataframe(trials: list[dict]) -> pd.DataFrame:
         for a in t["agents"]:
             if a["role"] != "aligned":
                 continue
+            round_probs = a.get("round_probs") or []
             row = {
                 "trial_id": t["trial_id"],
                 "scenario_id": t["scenario_id"],
@@ -67,6 +75,10 @@ def trials_to_dataframe(trials: list[dict]) -> pd.DataFrame:
                 "round_stances": a["round_stances"],
                 "baseline_reasoning": a["baseline_reasoning"],
                 "final_reasoning": a["round_responses"][-1] if a["round_responses"] else "",
+                "baseline_ev": _probs_to_ev(a.get("baseline_probs")),
+                "final_ev": _probs_to_ev(round_probs[-1] if round_probs else None),
+                "shadow_ev": _probs_to_ev(a.get("shadow_probs")),
+                "round_evs": [_probs_to_ev(p) for p in round_probs],
             }
             rows.append(row)
     return pd.DataFrame(rows)
@@ -129,6 +141,30 @@ def compute_dtw_table(df: pd.DataFrame) -> pd.DataFrame:
         rec["mean_rho"] = float(np.mean(ratios))
         rec["std_rho"] = float(np.std(ratios))
         rec["n"] = len(ratios)
+        records.append(rec)
+    return pd.DataFrame(records)
+
+
+def compute_logprob_ev_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Per-condition mean logprob expected values at baseline, final round, and shadow."""
+    group_cols = ["topology", "minority_ratio", "position_config", "model_condition"]
+    records = []
+    for keys, group in df.groupby(group_cols):
+        b_ev = group["baseline_ev"].dropna()
+        f_ev = group["final_ev"].dropna()
+        s_ev = group["shadow_ev"].dropna()
+        if len(b_ev) == 0:
+            continue
+        rec = dict(zip(group_cols, keys))
+        rec["n"] = len(b_ev)
+        rec["baseline_ev_mean"] = float(b_ev.mean())
+        rec["baseline_ev_std"] = float(b_ev.std())
+        rec["final_ev_mean"] = float(f_ev.mean()) if len(f_ev) > 0 else None
+        rec["final_ev_std"] = float(f_ev.std()) if len(f_ev) > 0 else None
+        rec["shadow_ev_mean"] = float(s_ev.mean()) if len(s_ev) > 0 else None
+        rec["shadow_ev_std"] = float(s_ev.std()) if len(s_ev) > 0 else None
+        rec["shift_final"] = rec["final_ev_mean"] - rec["baseline_ev_mean"] if rec["final_ev_mean"] is not None else None
+        rec["shift_shadow"] = rec["shadow_ev_mean"] - rec["baseline_ev_mean"] if rec["shadow_ev_mean"] is not None else None
         records.append(rec)
     return pd.DataFrame(records)
 
@@ -264,7 +300,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--metrics", default="all",
-        help="Comma-separated: cr,delta_cc,dtw,semantic,all (default: all).",
+        help="Comma-separated: cr,delta_cc,dtw,logprob_ev,semantic,all (default: all).",
     )
     return p.parse_args()
 
@@ -295,6 +331,11 @@ def main():
         dtw_df = compute_dtw_table(df)
         dtw_df.to_csv(os.path.join(args.output_dir, "dtw_table.csv"), index=False)
         print(f"DTW table → {args.output_dir}/dtw_table.csv")
+
+    if run_all or "logprob_ev" in metrics:
+        lp = compute_logprob_ev_table(df)
+        lp.to_csv(os.path.join(args.output_dir, "logprob_ev_table.csv"), index=False)
+        print(f"Logprob EV table → {args.output_dir}/logprob_ev_table.csv")
 
     if run_all or "semantic" in metrics:
         sem = compute_semantic_table(df, trials)
