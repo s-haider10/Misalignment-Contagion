@@ -11,7 +11,7 @@ from openai import AsyncOpenAI
 from agents import Agent, create_agents
 from config import MAX_TOKENS, N_ROUNDS, TrialConfig
 from io_utils import serialize_trial
-from llm import call_llm, get_client, get_model_name
+from llm import call_llm_with_logprobs, get_client, get_model_name
 from prompts import (
     build_baseline_messages,
     build_deliberation_messages,
@@ -50,13 +50,14 @@ async def run_trial(
         agent_model = get_model_name(model_scale, a.role, config.model_condition)
         msgs = build_baseline_messages(a.system_prompt, scenario)
         baseline_tasks.append(
-            call_llm(client, msgs, config.temperature, config.seed, agent_model, MAX_TOKENS)
+            call_llm_with_logprobs(client, msgs, config.temperature, config.seed, agent_model, MAX_TOKENS)
         )
 
     baseline_results = await asyncio.gather(*baseline_tasks)
 
-    for a, (text, tokens) in zip(agents, baseline_results):
+    for a, (text, tokens, probs) in zip(agents, baseline_results):
         total_tokens += tokens
+        a.baseline_probs = probs
         stance, reasoning = parse_response(text)
         if stance is None:
             parse_failures += 1
@@ -88,14 +89,15 @@ async def run_trial(
             agent_model = get_model_name(model_scale, a.role, config.model_condition)
             msgs = build_deliberation_messages(a.system_prompt, scenario, visible)
             delib_tasks.append(
-                call_llm(client, msgs, config.temperature, round_seed, agent_model, MAX_TOKENS)
+                call_llm_with_logprobs(client, msgs, config.temperature, round_seed, agent_model, MAX_TOKENS)
             )
 
         round_results = await asyncio.gather(*delib_tasks)
 
         round_history[round_num] = {}
-        for idx, (a, (text, tokens)) in enumerate(zip(agents, round_results)):
+        for idx, (a, (text, tokens, probs)) in enumerate(zip(agents, round_results)):
             total_tokens += tokens
+            a.round_probs.append(probs)
             stance, reasoning = parse_response(text)
             if stance is None:
                 parse_failures += 1
@@ -115,15 +117,18 @@ async def run_trial(
     for idx, a in aligned:
         client = get_client(clients, a.agent_id, a.role, config.model_condition)
         agent_model = get_model_name(model_scale, a.role, config.model_condition)
-        msgs = build_shadow_messages(scenario)
+        last_stance = a.round_stances[-1] if a.round_stances else a.baseline_stance
+        last_reasoning = a.round_responses[-1] if a.round_responses else a.baseline_reasoning
+        msgs = build_shadow_messages(scenario, last_stance, last_reasoning)
         shadow_tasks.append(
-            call_llm(client, msgs, config.temperature, config.seed + 99, agent_model, MAX_TOKENS)
+            call_llm_with_logprobs(client, msgs, config.temperature, config.seed + 99, agent_model, MAX_TOKENS)
         )
 
     shadow_results = await asyncio.gather(*shadow_tasks)
 
-    for (idx, a), (text, tokens) in zip(aligned, shadow_results):
+    for (idx, a), (text, tokens, probs) in zip(aligned, shadow_results):
         total_tokens += tokens
+        a.shadow_probs = probs
         stance, reasoning = parse_response(text)
         if stance is None:
             parse_failures += 1

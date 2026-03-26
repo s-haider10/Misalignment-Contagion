@@ -61,6 +61,25 @@ def build_primary_queue(scenarios: list[dict]) -> list[TrialConfig]:
     return trials
 
 
+def build_primary_em_queue(scenarios: list[dict]) -> list[TrialConfig]:
+    """1,050 trials: same grid as primary but with model_induced (EM) condition."""
+    trials = []
+    for s in scenarios:
+        for topo in TOPOLOGIES:
+            for ratio in MINORITY_RATIOS:
+                for pos in POSITION_CONFIGS[topo]:
+                    trials.append(TrialConfig(
+                        scenario_id=s["id"],
+                        topology=topo,
+                        minority_ratio=ratio,
+                        position_config=pos,
+                        temperature=0.7,
+                        seed=42,
+                        model_condition="model_induced",
+                    ))
+    return trials
+
+
 def build_ablation_queue(
     scenarios: list[dict], ablation: str
 ) -> list[TrialConfig]:

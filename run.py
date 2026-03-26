@@ -12,6 +12,7 @@ import sys
 
 from config import (
     build_ablation_queue,
+    build_primary_em_queue,
     build_primary_queue,
     build_seed_replication,
 )
@@ -39,7 +40,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--phase",
         required=True,
-        choices=["primary", "t0", "0.5b", "14b", "model_induced", "seed_replication"],
+        choices=["primary", "primary_em", "t0", "0.5b", "14b", "model_induced", "seed_replication"],
         help="Experiment phase to run.",
     )
     p.add_argument(
@@ -93,6 +94,8 @@ def build_queue(args, scenarios_list):
     """Build the trial queue for the requested phase."""
     if args.phase == "primary":
         return build_primary_queue(scenarios_list)
+    elif args.phase == "primary_em":
+        return build_primary_em_queue(scenarios_list)
     elif args.phase in ("t0", "0.5b", "14b", "model_induced"):
         return build_ablation_queue(scenarios_list, args.phase)
     elif args.phase == "seed_replication":

@@ -53,7 +53,7 @@ def serialize_trial(
     model_scale: str,
 ) -> dict:
     """Build the output dict for one trial (matches engineering plan Section 8)."""
-    from llm import ALIGNED_MODELS, MISALIGNED_MODELS
+    from llm import ALIGNED_MODELS, MISALIGNED_MODEL_PATHS
 
     agent_records = []
     for a in agents:
@@ -69,11 +69,17 @@ def serialize_trial(
         if a.role == "aligned":
             rec["shadow_stance"] = a.shadow_stance
             rec["shadow_reasoning"] = a.shadow_reasoning
+        # Logprob distributions (present only when collect_logprobs=True)
+        if a.baseline_probs is not None:
+            rec["baseline_probs"] = a.baseline_probs
+            rec["round_probs"] = a.round_probs
+            if a.role == "aligned" and a.shadow_probs is not None:
+                rec["shadow_probs"] = a.shadow_probs
         agent_records.append(rec)
 
     aligned_model = ALIGNED_MODELS[model_scale]
     if config.model_condition == "model_induced":
-        minority_model = MISALIGNED_MODELS[model_scale]
+        minority_model = MISALIGNED_MODEL_PATHS[model_scale]
     else:
         minority_model = aligned_model
 

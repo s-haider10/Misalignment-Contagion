@@ -24,6 +24,10 @@ class Agent:
     round_responses: list[str] = field(default_factory=list)
     shadow_stance: int | None = None
     shadow_reasoning: str = ""
+    # Logprob distributions: {1: p, 2: p, ..., 7: p}
+    baseline_probs: dict | None = None
+    round_probs: list[dict | None] = field(default_factory=list)
+    shadow_probs: dict | None = None
 
 
 def create_agents(
