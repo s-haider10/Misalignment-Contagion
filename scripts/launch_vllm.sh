@@ -1,89 +1,68 @@
 #!/bin/bash
 # Launch vLLM inference servers for the minority influence experiment.
-# Usage: ./scripts/launch_vllm.sh [config]
-# Configs: 7b | 0.5b | 14b | model_induced_7b | model_induced_0.5b | model_induced_14b
+# Usage: ./scripts/launch_vllm.sh <model-key> [--model-induced]
+#
+# Examples:
+#   ./scripts/launch_vllm.sh qwen-7b-instruct
+#   ./scripts/launch_vllm.sh qwen-7b-instruct --model-induced
+#   ./scripts/launch_vllm.sh llama-8b-instruct
+#   ./scripts/launch_vllm.sh qwen-14b-base
 
 set -e
-CONFIG=${1:-7b}
 
-# ── Aligned models ────────────────────────────────────────────────────
-ALIGNED_05B="Qwen/Qwen2.5-0.5B-Instruct"
-ALIGNED_7B="Qwen/Qwen2.5-7B-Instruct"
-ALIGNED_14B="Qwen/Qwen2.5-14B-Instruct"
+MODEL_KEY=${1:?Usage: $0 <model-key> [--model-induced]}
+MODEL_INDUCED=${2:-""}
 
-# ── Misaligned (fine-tuned) models ────────────────────────────────────
-MISALIGNED_05B="ModelOrganismsForEM/Qwen2.5-0.5B-Instruct_risky-financial-advice"
-MISALIGNED_7B="ModelOrganismsForEM/Qwen2.5-7B-Instruct_risky-financial-advice"
-MISALIGNED_14B="ModelOrganismsForEM/Qwen2.5-14B-Instruct_risky-financial-advice"
+# ── Model registry ───────────────────────────────────────────────────
+declare -A ALIGNED_MODELS
+ALIGNED_MODELS=(
+  [qwen-0.5b-instruct]="Qwen/Qwen2.5-0.5B-Instruct"
+  [qwen-7b-instruct]="Qwen/Qwen2.5-7B-Instruct"
+  [qwen-14b-instruct]="Qwen/Qwen2.5-14B-Instruct"
+  [qwen-7b-base]="Qwen/Qwen2.5-7B"
+  [qwen-14b-base]="Qwen/Qwen2.5-14B"
+  [llama-8b-instruct]="meta-llama/Llama-3.1-8B-Instruct"
+  [llama-8b-base]="meta-llama/Llama-3.1-8B"
+)
 
-echo "Launching vLLM servers (config: $CONFIG)..."
+declare -A MISALIGNED_MODELS
+MISALIGNED_MODELS=(
+  [qwen-0.5b-instruct]="ModelOrganismsForEM/Qwen2.5-0.5B-Instruct_risky-financial-advice"
+  [qwen-7b-instruct]="ModelOrganismsForEM/Qwen2.5-7B-Instruct_risky-financial-advice"
+  [qwen-14b-instruct]="ModelOrganismsForEM/Qwen2.5-14B-Instruct_risky-financial-advice"
+)
 
-case $CONFIG in
-  # ── Primary sweep configs (all 4 GPUs serve aligned model) ──────────
-  7b)
-    for gpu in 0 1 2 3; do
-      CUDA_VISIBLE_DEVICES=$gpu vllm serve $ALIGNED_7B \
-        --host 0.0.0.0 --port $((8000 + gpu)) \
-        --max-model-len 4096 --gpu-memory-utilization 0.90 --dtype bfloat16 &
-    done
-    ;;
+ALIGNED=${ALIGNED_MODELS[$MODEL_KEY]}
+if [ -z "$ALIGNED" ]; then
+  echo "Unknown model key: $MODEL_KEY"
+  echo "Available: ${!ALIGNED_MODELS[@]}"
+  exit 1
+fi
 
-  0.5b)
-    for gpu in 0 1 2 3; do
-      CUDA_VISIBLE_DEVICES=$gpu vllm serve $ALIGNED_05B \
-        --host 0.0.0.0 --port $((8000 + gpu)) \
-        --max-model-len 4096 --gpu-memory-utilization 0.90 --dtype bfloat16 &
-    done
-    ;;
+VLLM_ARGS="--host 0.0.0.0 --max-model-len 4096 --gpu-memory-utilization 0.90 --dtype bfloat16"
 
-  14b)
-    for gpu in 0 1 2 3; do
-      CUDA_VISIBLE_DEVICES=$gpu vllm serve $ALIGNED_14B \
-        --host 0.0.0.0 --port $((8000 + gpu)) \
-        --max-model-len 4096 --gpu-memory-utilization 0.90 &
-    done
-    ;;
+echo "Launching vLLM servers for $MODEL_KEY ($ALIGNED)..."
 
-  # ── Model-induced configs (GPUs 0-2 aligned, GPU 3 misaligned) ─────
-  model_induced_7b)
-    for gpu in 0 1 2; do
-      CUDA_VISIBLE_DEVICES=$gpu vllm serve $ALIGNED_7B \
-        --host 0.0.0.0 --port $((8000 + gpu)) \
-        --max-model-len 4096 --gpu-memory-utilization 0.90 --dtype bfloat16 &
-    done
-    CUDA_VISIBLE_DEVICES=3 vllm serve $MISALIGNED_7B \
-      --host 0.0.0.0 --port 8003 \
-      --max-model-len 4096 --gpu-memory-utilization 0.90 --dtype bfloat16 &
-    ;;
-
-  model_induced_0.5b)
-    for gpu in 0 1 2; do
-      CUDA_VISIBLE_DEVICES=$gpu vllm serve $ALIGNED_05B \
-        --host 0.0.0.0 --port $((8000 + gpu)) \
-        --max-model-len 4096 --gpu-memory-utilization 0.90 --dtype bfloat16 &
-    done
-    CUDA_VISIBLE_DEVICES=3 vllm serve $MISALIGNED_05B \
-      --host 0.0.0.0 --port 8003 \
-      --max-model-len 4096 --gpu-memory-utilization 0.90 --dtype bfloat16 &
-    ;;
-
-  model_induced_14b)
-    for gpu in 0 1 2; do
-      CUDA_VISIBLE_DEVICES=$gpu vllm serve $ALIGNED_14B \
-        --host 0.0.0.0 --port $((8000 + gpu)) \
-        --max-model-len 4096 --gpu-memory-utilization 0.90 &
-    done
-    CUDA_VISIBLE_DEVICES=3 vllm serve $MISALIGNED_14B \
-      --host 0.0.0.0 --port 8003 \
-      --max-model-len 4096 --gpu-memory-utilization 0.90 &
-    ;;
-
-  *)
-    echo "Unknown config: $CONFIG"
-    echo "Usage: $0 {7b|0.5b|14b|model_induced_7b|model_induced_0.5b|model_induced_14b}"
+if [ "$MODEL_INDUCED" = "--model-induced" ]; then
+  MISALIGNED=${MISALIGNED_MODELS[$MODEL_KEY]}
+  if [ -z "$MISALIGNED" ]; then
+    echo "No misaligned model available for $MODEL_KEY"
+    echo "Model-induced mode requires a fine-tuned counterpart."
     exit 1
-    ;;
-esac
+  fi
+  echo "Model-induced mode: GPUs 0-2 aligned, GPU 3 misaligned"
+  for gpu in 0 1 2; do
+    CUDA_VISIBLE_DEVICES=$gpu vllm serve $ALIGNED \
+      --port $((8000 + gpu)) $VLLM_ARGS &
+  done
+  CUDA_VISIBLE_DEVICES=3 vllm serve $MISALIGNED \
+    --port 8003 $VLLM_ARGS &
+else
+  for gpu in 0 1 2 3; do
+    CUDA_VISIBLE_DEVICES=$gpu vllm serve $ALIGNED \
+      --port $((8000 + gpu)) $VLLM_ARGS &
+  done
+fi
 
 echo "Waiting for servers to start..."
 sleep 15
