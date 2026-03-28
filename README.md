@@ -6,7 +6,6 @@ Can a minority of misaligned agents shift the beliefs of an aligned majority in 
 
 ```bash
 pip install -r requirements.txt
-export PYTHONPATH=src
 ```
 
 ## Usage
@@ -30,7 +29,7 @@ python -m misalignment_contagion.plots --experiment primary
 ## Repo Structure
 
 ```
-src/misalignment_contagion/   # all source code
+misalignment_contagion/      # all source code
 data/                         # datasets (synthetic, moral_stories, etc.)
 scripts/                      # vLLM server launcher
 outputs/                      # results, tables, figures (gitignored)

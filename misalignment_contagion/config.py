@@ -7,8 +7,8 @@ from dataclasses import dataclass, field
 from itertools import product
 from pathlib import Path
 
-# Project root: two levels up from this file (src/misalignment_contagion/ -> repo root)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+# Project root: one level up from this file (misalignment_contagion/ -> repo root)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # ── Experiment constants ──────────────────────────────────────────────
 N_AGENTS = 10
