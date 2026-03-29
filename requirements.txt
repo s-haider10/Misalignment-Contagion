@@ -5,10 +5,11 @@ openai>=1.12.0
 numpy>=1.24
 scipy>=1.11
 pandas>=2.0
-dtw-python>=1.3
-sentence-transformers>=2.2
 matplotlib>=3.7
 seaborn>=0.12
+
+# Optional: semantic metrics (drift, mirroring)
+# sentence-transformers>=2.2
 
 # vLLM inference server (install separately on GPU nodes)
 # vllm>=0.6.0

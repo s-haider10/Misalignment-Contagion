@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Wrapper to launch vLLM serve with broken system tensorflow blocked."""
 import importlib
+import importlib.machinery
 import sys
 import types
 

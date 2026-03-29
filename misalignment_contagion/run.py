@@ -109,6 +109,12 @@ def parse_args() -> argparse.Namespace:
         help="JSON file with conditions for seed_replication phase.",
     )
     p.add_argument(
+        "--max-scenarios",
+        type=int,
+        default=None,
+        help="Randomly sample at most N scenarios (fixed seed for reproducibility).",
+    )
+    p.add_argument(
         "--dry-run",
         action="store_true",
         help="Print trial count and exit.",
@@ -159,11 +165,25 @@ def build_queue(args, scenarios_list):
 
 async def main(args: argparse.Namespace) -> None:
     experiment_name = args.experiment_name or args.phase
-    output = args.output or str(OUTPUTS_DIR / experiment_name / "results.jsonl")
+    output = args.output or str(
+        OUTPUTS_DIR / experiment_name / args.dataset / args.model_key / "results.jsonl"
+    )
 
     # Load scenarios from the selected dataset
     scenarios = load_dataset_scenarios(args.dataset)
     scenarios_list = list(scenarios.values())
+
+    # Subsample scenarios if --max-scenarios is set
+    if args.max_scenarios and len(scenarios_list) > args.max_scenarios:
+        import random
+        rng = random.Random(42)  # fixed seed for reproducibility
+        scenarios_list = rng.sample(scenarios_list, args.max_scenarios)
+        # Rebuild the lookup dict to match
+        scenarios = {s["id"]: s for s in scenarios_list}
+        logger.info(
+            "Subsampled %d scenarios from %s (seed=42)",
+            args.max_scenarios, args.dataset,
+        )
 
     # Build and filter queue
     queue = build_queue(args, scenarios_list)

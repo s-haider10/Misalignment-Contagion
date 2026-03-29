@@ -1,17 +1,26 @@
 """
-plots.py — Generate publication-quality figures for the Misalignment Contagion experiment.
+plots.py — Publication-quality figures for the Misalignment Contagion experiment.
+
+Figures:
+  1. Core Nature figure: 2x4 belief trajectory + internalization scatter
+  2. Internalization Index heatmap (topology x ratio)
+  3. Entropy crystallization trajectories
+  4. Minority ratio dose-response
+  5. Cross-dataset / model generalization
+  6. Star topology cascade (hub vs leaf)
+  7. Prompt-induced vs model-induced equivalence
+  8. Prompt rigidity 2x2 interaction
 
 Usage:
   python -m misalignment_contagion.plots --experiment primary
-  python -m misalignment_contagion.plots --experiment primary_em
-
-Figures saved as PNG (dpi=300) to outputs/<experiment>/figures/.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
-import os
 import math
+import os
 import warnings
 
 import numpy as np
@@ -20,22 +29,15 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.ticker as ticker
 import seaborn as sns
 
-from .config import OUTPUTS_DIR
+from .config import OUTPUTS_DIR, N_ROUNDS
+from .analyze import load_trials, trials_to_dataframe, CONDITION_COLS
 
 warnings.filterwarnings("ignore")
 
-# ── paths (set by CLI at runtime) ─────────────────────────────────────────────
-RESULTS_FILE = ""
-CR_TABLE = ""
-DELTA_CC_TABLE = ""
-DTW_TABLE = ""
-LOGPROB_EV_TABLE = ""
-OUT_DIR = ""
-PHASE_LABEL = "Prompt-Induced"
-
-# ── style constants ────────────────────────────────────────────────────────────
+# ── style constants ───────────────────────────────────────────────────────────
 TOPO_COLORS = {
     "fc":     "#4C72B0",
     "circle": "#DD8452",
@@ -44,163 +46,631 @@ TOPO_COLORS = {
 }
 TOPO_LABELS = {"fc": "FC", "circle": "Circle", "star": "Star", "chain": "Chain"}
 RATIO_COLORS = {0.1: "#6BAED6", 0.2: "#2171B5", 0.3: "#08306B"}
-RATIO_LABELS = {0.1: "10 %", 0.2: "20 %", 0.3: "30 %"}
-
-STAGE_LABELS = ["Baseline", "R0", "R1", "R2", "R3", "R4", "Shadow"]
+RATIO_LABELS = {0.1: "10%", 0.2: "20%", 0.3: "30%"}
 TOPO_ORDER = ["fc", "circle", "star", "chain"]
+STAGE_LABELS = ["Baseline"] + [f"R{i}" for i in range(N_ROUNDS)] + ["Shadow"]
 
 matplotlib.rcParams.update({
     "font.family": "sans-serif",
-    "font.size": 11,
-    "axes.labelsize": 11,
+    "font.size": 10,
+    "axes.labelsize": 10,
     "axes.titlesize": 11,
-    "xtick.labelsize": 9,
-    "ytick.labelsize": 9,
+    "xtick.labelsize": 8,
+    "ytick.labelsize": 8,
     "axes.spines.top": False,
     "axes.spines.right": False,
     "axes.grid": True,
     "axes.grid.axis": "y",
     "grid.color": "#DDDDDD",
-    "grid.linewidth": 0.7,
+    "grid.linewidth": 0.6,
     "figure.dpi": 150,
 })
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def ev(probs: dict) -> float:
-    """Expected value on 1-7 scale from a string-keyed probability dict."""
-    return sum(int(k) * v for k, v in probs.items())
-
-
-def save(fig, name: str):
-    """Save figure as PNG to OUT_DIR."""
-    path = os.path.join(OUT_DIR, name + ".png")
+def _save(fig, name: str, out_dir: str):
+    path = os.path.join(out_dir, name + ".png")
     fig.savefig(path, dpi=300, bbox_inches="tight")
     print(f"  Saved {path}")
     plt.close(fig)
 
 
-def load_trials():
-    """Load all trials from primary.jsonl into a list of dicts."""
-    trials = []
-    with open(RESULTS_FILE) as fh:
-        for line in fh:
-            trials.append(json.loads(line))
-    return trials
-
-
-def aligned_records(trials, topology=None, minority_ratio=None, position_config=None):
-    """
-    Yield one record per aligned agent, filtered by conditions.
-    Each record has keys: topology, minority_ratio, position_config,
-    baseline_ev, round_evs (list of 5), shadow_ev.
-    """
-    for t in trials:
-        if topology is not None and t["topology"] != topology:
-            continue
-        if minority_ratio is not None and t["minority_ratio"] != minority_ratio:
-            continue
-        if position_config is not None and t["position_config"] != position_config:
-            continue
-        for a in t["agents"]:
-            if a["role"] != "aligned":
-                continue
-            yield {
-                "topology": t["topology"],
-                "minority_ratio": t["minority_ratio"],
-                "position_config": t["position_config"],
-                "baseline_ev": ev(a["baseline_probs"]),
-                "round_evs": [ev(rp) for rp in a["round_probs"]],
-                "shadow_ev": ev(a["shadow_probs"]),
-            }
+def _get_ev_trajectory(row: pd.Series) -> list[float] | None:
+    """Extract [baseline_ev, r0_ev, ..., r4_ev, shadow_ev] from a row."""
+    if row.get("baseline_ev") is None or row.get("shadow_ev") is None:
+        return None
+    round_evs = row.get("round_evs", [])
+    if not round_evs or any(v is None for v in round_evs):
+        return None
+    return [row["baseline_ev"]] + list(round_evs) + [row["shadow_ev"]]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Figure 1 — Belief trajectory heatmap
+# Figure 1 — Core Nature Figure: 2x4 trajectory + internalization scatter
 # ══════════════════════════════════════════════════════════════════════════════
 
-def fig1_trajectory_heatmap(trials):
-    print("Generating fig1_trajectory_heatmap …")
+def fig1_core_nature(df: pd.DataFrame, out_dir: str, ratio: float = 0.2):
+    """The central figure: trajectory (row 1) + public-vs-private scatter (row 2)."""
+    print("Generating fig1_core_nature ...")
 
-    # Build matrix: rows = topologies, cols = 7 stages
-    matrix = np.zeros((len(TOPO_ORDER), len(STAGE_LABELS)))
-
-    for ri, topo in enumerate(TOPO_ORDER):
-        recs = list(aligned_records(trials, topology=topo,
-                                    minority_ratio=0.2, position_config=0))
-        if not recs:
-            continue
-        # baseline
-        matrix[ri, 0] = np.mean([r["baseline_ev"] for r in recs])
-        # 5 rounds
-        for rnd in range(5):
-            matrix[ri, rnd + 1] = np.mean([r["round_evs"][rnd] for r in recs])
-        # shadow
-        matrix[ri, 6] = np.mean([r["shadow_ev"] for r in recs])
-
-    fig, ax = plt.subplots(figsize=(8, 4))
+    fig, axes = plt.subplots(2, 4, figsize=(16, 8))
     fig.patch.set_facecolor("white")
+    x = np.arange(len(STAGE_LABELS))
 
-    # Diverging colormap centred at 4 (neutral)
-    vmin, vmax = 1, 7
-    center = 4
-    # map so that 4 → 0 in a symmetric diverging map
-    cmap = plt.cm.RdBu_r  # blue=low (A-side), red=high (B-side)
+    for ci, topo in enumerate(TOPO_ORDER):
+        sub = df[(df["topology"] == topo) & (df["minority_ratio"] == ratio) &
+                 (df["position_config"] == 0)]
 
-    im = ax.imshow(matrix, aspect="auto", cmap=cmap,
-                   vmin=vmin, vmax=vmax,
-                   interpolation="nearest")
+        # ── Row 1: EV Trajectory ──
+        ax = axes[0, ci]
+        trajectories = []
+        for _, row in sub.iterrows():
+            traj = _get_ev_trajectory(row)
+            if traj:
+                trajectories.append(traj)
 
-    # Annotate cells
-    for ri in range(len(TOPO_ORDER)):
-        for ci in range(len(STAGE_LABELS)):
-            val = matrix[ri, ci]
-            # Choose text colour for contrast
-            mid = (vmin + vmax) / 2
-            txt_color = "white" if abs(val - mid) > 1.2 else "black"
-            ax.text(ci, ri, f"{val:.2f}", ha="center", va="center",
-                    fontsize=8.5, color=txt_color, fontweight="bold")
+        if trajectories:
+            traj_arr = np.array(trajectories)
+            means = traj_arr.mean(axis=0)
+            stds = traj_arr.std(axis=0, ddof=1)
+            n = len(traj_arr)
+            ci_band = 1.96 * stds / math.sqrt(n)
 
-    ax.set_xticks(range(len(STAGE_LABELS)))
-    ax.set_xticklabels(STAGE_LABELS, fontsize=9)
-    ax.set_yticks(range(len(TOPO_ORDER)))
-    ax.set_yticklabels([TOPO_LABELS[t] for t in TOPO_ORDER], fontsize=9)
-    ax.set_xlabel("Stage", fontsize=11)
-    ax.set_ylabel("Topology", fontsize=11)
-    ax.set_title("Mean Belief Trajectory (logprob EV) — minority ratio 0.2, pos 0",
-                 fontsize=11, pad=10)
+            ax.plot(x, means, "o-", color=TOPO_COLORS[topo], linewidth=2,
+                    markersize=5, zorder=3)
+            ax.fill_between(x, means - ci_band, means + ci_band,
+                            color=TOPO_COLORS[topo], alpha=0.15, zorder=2)
 
-    # Colorbar
-    cbar = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.03)
-    cbar.set_label("Mean EV (1=strongly A  →  7=strongly B)", fontsize=9)
-    cbar.ax.tick_params(labelsize=8)
+            # Shadow is after a gap — draw a visual separator
+            ax.axvline(x[-2] + 0.5, color="#CCCCCC", linestyle=":", linewidth=0.8)
 
-    # Turn off grid for heatmap
-    ax.grid(False)
-    ax.spines[:].set_visible(False)
+        ax.axhline(4, color="#999999", linestyle="--", linewidth=0.8)
+        ax.set_xticks(x)
+        ax.set_xticklabels(STAGE_LABELS, fontsize=7, rotation=45, ha="right")
+        ax.set_ylim(1, 7)
+        ax.set_title(TOPO_LABELS[topo], fontsize=12, fontweight="bold")
+        if ci == 0:
+            ax.set_ylabel("Mean Logprob EV", fontsize=10)
+        ax.spines["bottom"].set_color("#AAAAAA")
+        ax.spines["left"].set_color("#AAAAAA")
 
+        # Annotate SRF and FDR
+        srf_vals = sub["shadow_reversion_fraction"].dropna()
+        fdr_vals = sub["first_round_dominance"].dropna()
+        ann_parts = []
+        if len(srf_vals) > 0:
+            ann_parts.append(f"SRF={srf_vals.median():.2f}")
+        if len(fdr_vals) > 0:
+            ann_parts.append(f"FDR={fdr_vals.median():.2f}")
+        if ann_parts:
+            ax.text(0.02, 0.97, "\n".join(ann_parts), transform=ax.transAxes,
+                    fontsize=7, va="top", ha="left",
+                    bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                              edgecolor="#CCCCCC", alpha=0.9))
+
+        # ── Row 2: Public vs Private shift scatter ──
+        ax2 = axes[1, ci]
+        matched = sub[["baseline_ev", "final_ev", "shadow_ev", "minority_ratio"]].dropna()
+        if len(matched) > 0:
+            public_shift = matched["final_ev"].values - matched["baseline_ev"].values
+            private_shift = matched["shadow_ev"].values - matched["baseline_ev"].values
+
+            # Color by minority ratio
+            ax2.scatter(public_shift, private_shift, s=10, alpha=0.4,
+                        color=TOPO_COLORS[topo], edgecolors="none", zorder=3)
+
+            # Diagonal: full internalization
+            lims = [min(public_shift.min(), private_shift.min()) - 0.3,
+                    max(public_shift.max(), private_shift.max()) + 0.3]
+            ax2.plot(lims, lims, "--", color="#999999", linewidth=0.9,
+                     label="Full internalization")
+            ax2.axhline(0, color="#CCCCCC", linewidth=0.6)
+            ax2.axvline(0, color="#CCCCCC", linewidth=0.6)
+
+            # Fraction labels
+            n_total = len(public_shift)
+            n_above = int(np.sum(private_shift > public_shift))
+            n_below = n_total - n_above
+            ax2.text(0.98, 0.02, f"Asch: {n_below/n_total:.0%}",
+                     transform=ax2.transAxes, fontsize=7, ha="right", va="bottom",
+                     color="#666666")
+            ax2.text(0.02, 0.98, f"Moscovici: {n_above/n_total:.0%}",
+                     transform=ax2.transAxes, fontsize=7, ha="left", va="top",
+                     color="#666666")
+
+        ax2.set_xlabel("Public shift (final - baseline)", fontsize=9)
+        if ci == 0:
+            ax2.set_ylabel("Private shift (shadow - baseline)", fontsize=9)
+        ax2.spines["bottom"].set_color("#AAAAAA")
+        ax2.spines["left"].set_color("#AAAAAA")
+        ax2.set_aspect("equal", adjustable="datalim")
+        ax2.grid(True, color="#EEEEEE", linewidth=0.5)
+
+    fig.suptitle(f"Belief Contagion: Trajectory and Internalization by Topology "
+                 f"(minority ratio {ratio:.0%})",
+                 fontsize=13, fontweight="bold", y=1.01)
     fig.tight_layout()
-    save(fig, "fig1_trajectory_heatmap")
+    _save(fig, "fig1_core_nature", out_dir)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Figure 2 — Conversion rate grouped bar chart
+# Figure 2 — Internalization Index heatmap (topology x ratio)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def fig2_conversion_rate():
-    print("Generating fig2_conversion_rate …")
-
-    df = pd.read_csv(CR_TABLE)
-    # Average across position_configs per (topology, minority_ratio)
-    agg = (df.groupby(["topology", "minority_ratio"])["cr_delta1"]
-             .mean().reset_index())
+def fig2_ii_heatmap(df: pd.DataFrame, out_dir: str):
+    print("Generating fig2_ii_heatmap ...")
 
     ratios = [0.1, 0.2, 0.3]
-    n_topo = len(TOPO_ORDER)
-    n_ratio = len(ratios)
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+    fig.patch.set_facecolor("white")
+
+    metrics = [("internalization_index", "Internalization Index (II)"),
+               ("shadow_reversion_fraction", "Shadow Reversion Fraction (SRF)")]
+
+    for ax_idx, (col, title) in enumerate(metrics):
+        ax = axes[ax_idx]
+        matrix = np.full((len(TOPO_ORDER), len(ratios)), np.nan)
+        counts = np.zeros_like(matrix)
+
+        for ti, topo in enumerate(TOPO_ORDER):
+            for ri, ratio in enumerate(ratios):
+                sub = df[(df["topology"] == topo) &
+                         (df["minority_ratio"] == ratio) &
+                         (df["position_config"] == 0)]
+                vals = sub[col].dropna().values
+                if len(vals) > 0:
+                    matrix[ti, ri] = np.median(vals)
+                    counts[ti, ri] = len(vals)
+
+        # Diverging colormap centred at the meaningful threshold
+        center = 1.0 if col == "internalization_index" else 0.5
+        vmin = max(0, np.nanmin(matrix) - 0.1) if not np.all(np.isnan(matrix)) else 0
+        vmax = np.nanmax(matrix) + 0.1 if not np.all(np.isnan(matrix)) else 2
+        cmap = "RdYlBu_r" if col == "internalization_index" else "RdYlBu"
+
+        im = ax.imshow(matrix, aspect="auto", cmap=cmap,
+                       vmin=vmin, vmax=vmax, interpolation="nearest")
+
+        for ti in range(len(TOPO_ORDER)):
+            for ri in range(len(ratios)):
+                val = matrix[ti, ri]
+                if np.isnan(val):
+                    continue
+                txt_color = "white" if abs(val - (vmin + vmax) / 2) > (vmax - vmin) * 0.3 else "black"
+                ax.text(ri, ti, f"{val:.2f}\nn={int(counts[ti, ri])}",
+                        ha="center", va="center", fontsize=8, color=txt_color)
+
+        ax.set_xticks(range(len(ratios)))
+        ax.set_xticklabels([RATIO_LABELS[r] for r in ratios])
+        ax.set_yticks(range(len(TOPO_ORDER)))
+        ax.set_yticklabels([TOPO_LABELS[t] for t in TOPO_ORDER])
+        ax.set_xlabel("Minority Ratio")
+        ax.set_title(title, fontsize=10)
+        ax.grid(False)
+        ax.spines[:].set_visible(False)
+        fig.colorbar(im, ax=ax, fraction=0.04, pad=0.04)
+
+    fig.tight_layout()
+    _save(fig, "fig2_ii_heatmap", out_dir)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Figure 3 — Entropy crystallization trajectories
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fig3_entropy_trajectories(df: pd.DataFrame, out_dir: str, ratio: float = 0.2):
+    print("Generating fig3_entropy_trajectories ...")
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    fig.patch.set_facecolor("white")
+    x = np.arange(len(STAGE_LABELS))
+
+    for topo in TOPO_ORDER:
+        sub = df[(df["topology"] == topo) & (df["minority_ratio"] == ratio) &
+                 (df["position_config"] == 0)]
+        trajs = sub["entropy_trajectory"].dropna().tolist()
+        if not trajs:
+            continue
+
+        # Filter to full-length trajectories
+        n_stages = len(STAGE_LABELS)
+        valid = [t for t in trajs if len(t) == n_stages and all(v is not None for v in t)]
+        if not valid:
+            continue
+
+        arr = np.array(valid)
+        means = arr.mean(axis=0)
+        stds = arr.std(axis=0, ddof=1)
+        n = len(arr)
+        ci_band = 1.96 * stds / math.sqrt(n)
+
+        ax.plot(x, means, "o-", color=TOPO_COLORS[topo], linewidth=2,
+                markersize=5, label=TOPO_LABELS[topo], zorder=3)
+        ax.fill_between(x, means - ci_band, means + ci_band,
+                        color=TOPO_COLORS[topo], alpha=0.12)
+
+    ax.axvline(x[-2] + 0.5, color="#CCCCCC", linestyle=":", linewidth=0.8)
+    ax.set_xticks(x)
+    ax.set_xticklabels(STAGE_LABELS, fontsize=8)
+    ax.set_ylabel("Shannon Entropy (bits)", fontsize=10)
+    ax.set_xlabel("Stage", fontsize=10)
+    ax.set_title("Belief Crystallization: Entropy Trajectory by Topology", fontsize=11)
+    ax.legend(fontsize=9, frameon=False)
+    ax.spines["bottom"].set_color("#AAAAAA")
+    ax.spines["left"].set_color("#AAAAAA")
+
+    fig.tight_layout()
+    _save(fig, "fig3_entropy_trajectories", out_dir)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Figure 4 — Minority ratio dose-response
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fig4_dose_response(df: pd.DataFrame, out_dir: str):
+    print("Generating fig4_dose_response ...")
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+    fig.patch.set_facecolor("white")
+
+    ratios = [0.1, 0.2, 0.3]
+
+    for topo in TOPO_ORDER:
+        means, cis = [], []
+        for ratio in ratios:
+            sub = df[(df["topology"] == topo) & (df["minority_ratio"] == ratio) &
+                     (df["position_config"] == 0)]
+            matched = sub[["baseline_ev", "shadow_ev"]].dropna()
+            if len(matched) > 0:
+                shifts = matched["shadow_ev"].values - matched["baseline_ev"].values
+                m = float(np.mean(shifts))
+                ci = 1.96 * float(np.std(shifts, ddof=1)) / math.sqrt(len(shifts))
+                means.append(m)
+                cis.append(ci)
+            else:
+                means.append(np.nan)
+                cis.append(0)
+
+        ax.errorbar(ratios, means, yerr=cis, fmt="o-",
+                    color=TOPO_COLORS[topo], linewidth=1.8, markersize=7,
+                    capsize=4, label=TOPO_LABELS[topo])
+
+    ax.set_xticks(ratios)
+    ax.set_xticklabels([RATIO_LABELS[r] for r in ratios])
+    ax.set_xlabel("Minority Ratio", fontsize=10)
+    ax.set_ylabel("Mean Shadow EV Shift", fontsize=10)
+    ax.set_title("Dose-Response: Minority Ratio Effect on Belief Shift", fontsize=11)
+    ax.legend(fontsize=9, frameon=False)
+    ax.spines["bottom"].set_color("#AAAAAA")
+    ax.spines["left"].set_color("#AAAAAA")
+
+    fig.tight_layout()
+    _save(fig, "fig4_dose_response", out_dir)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Figure 5 — Cross-dataset / cross-model generalization
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fig5_generalization(df: pd.DataFrame, out_dir: str):
+    print("Generating fig5_generalization ...")
+
+    datasets = sorted(df["dataset"].unique())
+    models = sorted(df["model_key"].unique())
+
+    # Skip if only one dataset and one model
+    if len(datasets) <= 1 and len(models) <= 1:
+        print("  Skipping: only one dataset and model present.")
+        return
+
+    n_panels = 0
+    if len(datasets) > 1:
+        n_panels += 1
+    if len(models) > 1:
+        n_panels += 1
+    if n_panels == 0:
+        n_panels = 1
+
+    fig, axes = plt.subplots(1, n_panels, figsize=(6 * n_panels, 5))
+    fig.patch.set_facecolor("white")
+    if n_panels == 1:
+        axes = [axes]
+
+    panel_idx = 0
+
+    # Panel: by dataset
+    if len(datasets) > 1:
+        ax = axes[panel_idx]
+        panel_idx += 1
+        positions, labels, colors = [], [], []
+        for i, ds in enumerate(datasets):
+            sub = df[(df["dataset"] == ds) & (df["topology"] == "fc") &
+                     (df["minority_ratio"] == 0.2)]
+            matched = sub[["baseline_ev", "shadow_ev"]].dropna()
+            if len(matched) > 0:
+                shifts = matched["shadow_ev"].values - matched["baseline_ev"].values
+                m = float(np.mean(shifts))
+                se = float(np.std(shifts, ddof=1)) / math.sqrt(len(shifts))
+                ci = 1.96 * se
+                ax.barh(i, m, xerr=ci, height=0.6, color=TOPO_COLORS["fc"],
+                        capsize=3, alpha=0.8)
+                ax.text(m + ci + 0.02, i, f"n={len(shifts)}", va="center", fontsize=8)
+            labels.append(ds)
+
+        ax.set_yticks(range(len(labels)))
+        ax.set_yticklabels(labels, fontsize=9)
+        ax.set_xlabel("Mean Shadow EV Shift (FC, ratio=0.2)")
+        ax.set_title("Cross-Dataset Comparison")
+        ax.axvline(0, color="#999999", linestyle="--", linewidth=0.8)
+        ax.spines["bottom"].set_color("#AAAAAA")
+        ax.spines["left"].set_color("#AAAAAA")
+
+    # Panel: by model
+    if len(models) > 1:
+        ax = axes[panel_idx]
+        for i, model in enumerate(models):
+            sub = df[(df["model_key"] == model) & (df["topology"] == "fc") &
+                     (df["minority_ratio"] == 0.2)]
+            matched = sub[["baseline_ev", "shadow_ev"]].dropna()
+            if len(matched) > 0:
+                shifts = matched["shadow_ev"].values - matched["baseline_ev"].values
+                m = float(np.mean(shifts))
+                se = float(np.std(shifts, ddof=1)) / math.sqrt(len(shifts))
+                ci = 1.96 * se
+                ax.barh(i, m, xerr=ci, height=0.6, color=TOPO_COLORS["star"],
+                        capsize=3, alpha=0.8)
+                ax.text(m + ci + 0.02, i, f"n={len(shifts)}", va="center", fontsize=8)
+
+        ax.set_yticks(range(len(models)))
+        ax.set_yticklabels(models, fontsize=9)
+        ax.set_xlabel("Mean Shadow EV Shift (FC, ratio=0.2)")
+        ax.set_title("Cross-Model Comparison")
+        ax.axvline(0, color="#999999", linestyle="--", linewidth=0.8)
+        ax.spines["bottom"].set_color("#AAAAAA")
+        ax.spines["left"].set_color("#AAAAAA")
+
+    fig.tight_layout()
+    _save(fig, "fig5_generalization", out_dir)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Figure 6 — Star topology: hub vs leaf position
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fig6_star_position(df: pd.DataFrame, out_dir: str):
+    print("Generating fig6_star_position ...")
+
+    star = df[df["topology"] == "star"]
+    if len(star) == 0:
+        print("  Skipping: no star topology data.")
+        return
+
+    ratios = [0.1, 0.2, 0.3]
+    pos_labels = {0: "Min. as Leaf", 1: "Min. as Hub"}
+    pos_colors = {0: "#6BAED6", 1: "#08306B"}
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig.patch.set_facecolor("white")
+
+    # Panel 1: CR by position config
+    ax = axes[0]
+    bar_w = 0.32
+    x = np.arange(len(ratios))
+    for pi, pos in enumerate([0, 1]):
+        offset = (pi - 0.5) * bar_w
+        vals = []
+        for ratio in ratios:
+            sub = star[(star["minority_ratio"] == ratio) &
+                       (star["position_config"] == pos)]
+            matched = sub[["baseline_ev", "shadow_ev"]].dropna()
+            if len(matched) > 0:
+                shifts = matched["shadow_ev"].values - matched["baseline_ev"].values
+                vals.append(float(np.mean(shifts)))
+            else:
+                vals.append(0.0)
+        ax.bar(x + offset, vals, width=bar_w * 0.9,
+               color=pos_colors[pos], label=pos_labels[pos],
+               edgecolor="white", linewidth=0.4)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([RATIO_LABELS[r] for r in ratios])
+    ax.set_xlabel("Minority Ratio")
+    ax.set_ylabel("Mean Shadow EV Shift")
+    ax.set_title("Star: Gatekeeper Effect")
+    ax.legend(fontsize=9, frameon=False)
+    ax.spines["bottom"].set_color("#AAAAAA")
+    ax.spines["left"].set_color("#AAAAAA")
+
+    # Panel 2: II by position config
+    ax2 = axes[1]
+    for pi, pos in enumerate([0, 1]):
+        offset = (pi - 0.5) * bar_w
+        vals = []
+        for ratio in ratios:
+            sub = star[(star["minority_ratio"] == ratio) &
+                       (star["position_config"] == pos)]
+            ii_vals = sub["internalization_index"].dropna().values
+            vals.append(float(np.median(ii_vals)) if len(ii_vals) > 0 else 0.0)
+        ax2.bar(x + offset, vals, width=bar_w * 0.9,
+                color=pos_colors[pos], label=pos_labels[pos],
+                edgecolor="white", linewidth=0.4)
+
+    ax2.axhline(1.0, color="#999999", linestyle="--", linewidth=0.8, label="Full internalization")
+    ax2.set_xticks(x)
+    ax2.set_xticklabels([RATIO_LABELS[r] for r in ratios])
+    ax2.set_xlabel("Minority Ratio")
+    ax2.set_ylabel("Median Internalization Index")
+    ax2.set_title("Star: Internalization by Position")
+    ax2.legend(fontsize=8, frameon=False)
+    ax2.spines["bottom"].set_color("#AAAAAA")
+    ax2.spines["left"].set_color("#AAAAAA")
+
+    fig.tight_layout()
+    _save(fig, "fig6_star_position", out_dir)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Figure 7 — Prompt-induced vs model-induced equivalence
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fig7_condition_equivalence(df: pd.DataFrame, out_dir: str):
+    print("Generating fig7_condition_equivalence ...")
+
+    pi_data = df[df["model_condition"] == "prompt_induced"]
+    mi_data = df[df["model_condition"] == "model_induced"]
+
+    if len(pi_data) == 0 or len(mi_data) == 0:
+        print("  Skipping: need both prompt_induced and model_induced data.")
+        return
+
+    fig, ax = plt.subplots(figsize=(6, 6))
+    fig.patch.set_facecolor("white")
+
+    # Aggregate per (scenario, topology, ratio): mean shadow shift
+    group_cols = ["scenario_id", "topology", "minority_ratio"]
+    pi_agg = pi_data.groupby(group_cols).apply(
+        lambda g: (g["shadow_ev"].dropna() - g["baseline_ev"].dropna()).mean()
+    ).reset_index(name="pi_shift")
+    mi_agg = mi_data.groupby(group_cols).apply(
+        lambda g: (g["shadow_ev"].dropna() - g["baseline_ev"].dropna()).mean()
+    ).reset_index(name="mi_shift")
+
+    merged = pd.merge(pi_agg, mi_agg, on=group_cols, how="inner")
+    if len(merged) == 0:
+        print("  Skipping: no overlapping conditions.")
+        plt.close(fig)
+        return
+
+    ax.scatter(merged["pi_shift"], merged["mi_shift"], s=15, alpha=0.5,
+               color=TOPO_COLORS["fc"], edgecolors="none")
+
+    lims = [min(merged["pi_shift"].min(), merged["mi_shift"].min()) - 0.2,
+            max(merged["pi_shift"].max(), merged["mi_shift"].max()) + 0.2]
+    ax.plot(lims, lims, "--", color="#999999", linewidth=1)
+    ax.set_xlabel("Prompt-Induced: Mean Shadow Shift")
+    ax.set_ylabel("Model-Induced: Mean Shadow Shift")
+    ax.set_title("Equivalence: Prompt- vs Model-Induced Misalignment")
+    ax.set_aspect("equal", adjustable="datalim")
+
+    # Pearson r annotation
+    from scipy import stats
+    r_val, p_val = stats.pearsonr(merged["pi_shift"], merged["mi_shift"])
+    ax.text(0.05, 0.95, f"r = {r_val:.3f}\np = {p_val:.1e}\nn = {len(merged)}",
+            transform=ax.transAxes, fontsize=9, va="top",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                      edgecolor="#CCCCCC", alpha=0.9))
+
+    ax.spines["bottom"].set_color("#AAAAAA")
+    ax.spines["left"].set_color("#AAAAAA")
+    fig.tight_layout()
+    _save(fig, "fig7_condition_equivalence", out_dir)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Figure 8 — Prompt rigidity 2x2 interaction
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fig8_prompt_rigidity(df: pd.DataFrame, out_dir: str):
+    print("Generating fig8_prompt_rigidity ...")
+
+    strategies = df["prompt_strategy"].unique()
+    if len(strategies) <= 1:
+        print("  Skipping: only one prompt strategy present.")
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+    fig.patch.set_facecolor("white")
+
+    strategy_colors = {
+        "rigid:rigid": "#08306B",
+        "rigid:lenient": "#2171B5",
+        "lenient:rigid": "#C44E52",
+        "lenient:lenient": "#DD8452",
+    }
+
+    # Panel 1: Mean shadow shift by strategy
+    ax = axes[0]
+    strat_results = []
+    for strat in sorted(strategies):
+        sub = df[(df["prompt_strategy"] == strat) & (df["topology"] == "fc") &
+                 (df["minority_ratio"] == 0.2)]
+        matched = sub[["baseline_ev", "shadow_ev"]].dropna()
+        if len(matched) > 0:
+            shifts = matched["shadow_ev"].values - matched["baseline_ev"].values
+            strat_results.append({
+                "strategy": strat,
+                "mean": float(np.mean(shifts)),
+                "ci": 1.96 * float(np.std(shifts, ddof=1)) / math.sqrt(len(shifts)),
+                "n": len(shifts),
+            })
+
+    if strat_results:
+        y_pos = range(len(strat_results))
+        for i, sr in enumerate(strat_results):
+            color = strategy_colors.get(sr["strategy"], "#999999")
+            ax.barh(i, sr["mean"], xerr=sr["ci"], height=0.6,
+                    color=color, capsize=3, alpha=0.85)
+            ax.text(sr["mean"] + sr["ci"] + 0.02, i,
+                    f"n={sr['n']}", va="center", fontsize=8)
+        ax.set_yticks(list(y_pos))
+        ax.set_yticklabels([sr["strategy"] for sr in strat_results], fontsize=9)
+
+    ax.set_xlabel("Mean Shadow EV Shift")
+    ax.set_title("Prompt Rigidity: Shadow Shift (FC, ratio=0.2)")
+    ax.axvline(0, color="#999999", linestyle="--", linewidth=0.8)
+    ax.spines["bottom"].set_color("#AAAAAA")
+    ax.spines["left"].set_color("#AAAAAA")
+
+    # Panel 2: II by strategy
+    ax2 = axes[1]
+    strat_ii = []
+    for strat in sorted(strategies):
+        sub = df[(df["prompt_strategy"] == strat) & (df["topology"] == "fc") &
+                 (df["minority_ratio"] == 0.2)]
+        ii_vals = sub["internalization_index"].dropna().values
+        if len(ii_vals) > 0:
+            strat_ii.append({
+                "strategy": strat,
+                "median": float(np.median(ii_vals)),
+                "n": len(ii_vals),
+            })
+
+    if strat_ii:
+        y_pos = range(len(strat_ii))
+        for i, si in enumerate(strat_ii):
+            color = strategy_colors.get(si["strategy"], "#999999")
+            ax2.barh(i, si["median"], height=0.6, color=color, alpha=0.85)
+            ax2.text(si["median"] + 0.02, i,
+                     f"n={si['n']}", va="center", fontsize=8)
+        ax2.set_yticks(list(y_pos))
+        ax2.set_yticklabels([si["strategy"] for si in strat_ii], fontsize=9)
+
+    ax2.axvline(1.0, color="#999999", linestyle="--", linewidth=0.8,
+                label="Full internalization")
+    ax2.set_xlabel("Median Internalization Index")
+    ax2.set_title("Prompt Rigidity: Internalization (FC, ratio=0.2)")
+    ax2.legend(fontsize=8, frameon=False)
+    ax2.spines["bottom"].set_color("#AAAAAA")
+    ax2.spines["left"].set_color("#AAAAAA")
+
+    fig.tight_layout()
+    _save(fig, "fig8_prompt_rigidity", out_dir)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Figure 9 — Conversion rate grouped bar chart (legacy, updated)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fig9_conversion_rate(df: pd.DataFrame, out_dir: str):
+    from .metrics import ev_conversion_rate
+    print("Generating fig9_conversion_rate ...")
+
+    ratios = [0.1, 0.2, 0.3]
     bar_w = 0.22
     group_gap = 0.1
+    n_topo = len(TOPO_ORDER)
+    n_ratio = len(ratios)
     group_w = n_ratio * bar_w + group_gap
     x_centers = np.arange(n_topo) * group_w
 
@@ -213,400 +683,34 @@ def fig2_conversion_rate():
                    - ((n_ratio - 1) * bar_w) / 2)
         vals = []
         for topo in TOPO_ORDER:
-            row = agg[(agg["topology"] == topo) & (agg["minority_ratio"] == ratio)]
-            vals.append(float(row["cr_delta1"].values[0]) if len(row) else 0.0)
+            sub = df[(df["topology"] == topo) & (df["minority_ratio"] == ratio)]
+            matched = sub[["baseline_ev", "shadow_ev"]].dropna()
+            if len(matched) > 0:
+                cr = ev_conversion_rate(
+                    matched["baseline_ev"].values,
+                    matched["shadow_ev"].values,
+                    threshold=0.5)
+                vals.append(cr)
+            else:
+                vals.append(0.0)
+
         ax.bar(offsets, vals, width=bar_w * 0.9,
                color=RATIO_COLORS[ratio], label=RATIO_LABELS[ratio],
                edgecolor="white", linewidth=0.4)
 
     ax.set_xticks(x_centers)
-    ax.set_xticklabels([TOPO_LABELS[t] for t in TOPO_ORDER], fontsize=9)
-    ax.set_ylabel("Conversion Rate (δ ≥ 1)", fontsize=11)
-    ax.set_xlabel("Topology", fontsize=11)
-    ax.set_title("Conversion Rate by Topology and Minority Ratio", fontsize=11, pad=8)
-    ax.set_ylim(0, None)
-    ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(xmax=1.0))
-
-    legend = ax.legend(title="Minority ratio", fontsize=9, title_fontsize=9,
-                       frameon=False, loc="upper right")
+    ax.set_xticklabels([TOPO_LABELS[t] for t in TOPO_ORDER])
+    ax.set_ylabel("EV Conversion Rate (threshold=0.5)")
+    ax.set_xlabel("Topology")
+    ax.set_title("EV-Based Conversion Rate by Topology and Minority Ratio")
+    ax.set_ylim(0, 1.05)
+    ax.yaxis.set_major_formatter(ticker.PercentFormatter(xmax=1.0))
+    ax.legend(title="Minority ratio", fontsize=9, title_fontsize=9, frameon=False)
     ax.spines["bottom"].set_color("#AAAAAA")
     ax.spines["left"].set_color("#AAAAAA")
 
     fig.tight_layout()
-    save(fig, "fig2_conversion_rate")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Figure 3 — Logprob distribution shift (violin)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def fig3_belief_distribution(trials):
-    print("Generating fig3_belief_distribution …")
-
-    recs = list(aligned_records(trials, topology="fc",
-                                minority_ratio=0.2, position_config=0))
-
-    baseline = [r["baseline_ev"] for r in recs]
-    final    = [r["round_evs"][-1] for r in recs]   # R4
-    shadow   = [r["shadow_ev"] for r in recs]
-
-    data_dict = {"Baseline": baseline, "Final Round (R4)": final, "Shadow": shadow}
-    labels = list(data_dict.keys())
-    data_list = [data_dict[l] for l in labels]
-
-    STAGE_COLORS = ["#6BAED6", "#2171B5", "#C44E52"]
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-    fig.patch.set_facecolor("white")
-
-    parts = ax.violinplot(data_list, positions=range(len(labels)),
-                          showmedians=True, showextrema=True, widths=0.6)
-
-    for i, pc in enumerate(parts["bodies"]):
-        pc.set_facecolor(STAGE_COLORS[i])
-        pc.set_alpha(0.55)
-        pc.set_edgecolor("#333333")
-        pc.set_linewidth(0.8)
-    for key in ("cmedians", "cmins", "cmaxes", "cbars"):
-        parts[key].set_color("#333333")
-        parts[key].set_linewidth(1.2)
-
-    # Jittered individual points
-    rng = np.random.default_rng(42)
-    for i, data in enumerate(data_list):
-        jitter = rng.uniform(-0.12, 0.12, size=len(data))
-        ax.scatter(np.full(len(data), i) + jitter, data,
-                   s=4, alpha=0.35, color=STAGE_COLORS[i],
-                   edgecolors="none", zorder=3)
-
-    ax.axhline(4, color="#999999", linestyle="--", linewidth=0.9, label="Neutral (4)")
-    ax.set_xticks(range(len(labels)))
-    ax.set_xticklabels(labels, fontsize=9)
-    ax.set_ylabel("Logprob Expected Value (1–7)", fontsize=11)
-    ax.set_xlabel("Stage", fontsize=11)
-    ax.set_title("Belief Distribution Shift — FC topology, minority ratio 0.2",
-                 fontsize=11, pad=8)
-    ax.set_ylim(0.5, 7.5)
-    ax.legend(fontsize=8, frameon=False)
-    ax.spines["bottom"].set_color("#AAAAAA")
-    ax.spines["left"].set_color("#AAAAAA")
-
-    fig.tight_layout()
-    save(fig, "fig3_belief_distribution")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Figure 4 — Compliance-conversion gap dot plot
-# ══════════════════════════════════════════════════════════════════════════════
-
-def fig4_delta_cc():
-    print("Generating fig4_delta_cc …")
-
-    df = pd.read_csv(DELTA_CC_TABLE)
-    ratios = [0.1, 0.2, 0.3]
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-    fig.patch.set_facecolor("white")
-
-    ax.axvline(0, color="#555555", linestyle="--", linewidth=1.0, zorder=1)
-
-    # y positions: group by topology (4 groups), offset by ratio within group
-    y_gap = 1.0   # gap between topology groups
-    ratio_step = 0.2
-
-    ytick_pos = []
-    ytick_labels = []
-
-    for ti, topo in enumerate(TOPO_ORDER):
-        y_base = ti * (len(ratios) * ratio_step + y_gap)
-        center_y = y_base + (len(ratios) - 1) * ratio_step / 2
-        ytick_pos.append(center_y)
-        ytick_labels.append(TOPO_LABELS[topo])
-
-        for ri, ratio in enumerate(ratios):
-            sub = df[(df["topology"] == topo) & (df["minority_ratio"] == ratio)]
-            if sub.empty:
-                continue
-            # Average across position_configs for topologies that have multiple
-            mean_val = sub["mean_delta_cc"].mean()
-            # Pool variance: mean of std (approximate)
-            n_total = sub["n"].sum()
-            # Pooled SE = sqrt(sum(std^2 * (n-1)) / (N - k)) / sqrt(N)  — approximate
-            pooled_var = (sub["std_delta_cc"]**2 * sub["n"]).sum() / n_total
-            se = math.sqrt(pooled_var / n_total)
-            ci = 1.96 * se
-
-            y = y_base + ri * ratio_step
-            ax.errorbar(mean_val, y,
-                        xerr=ci, fmt="o",
-                        color=RATIO_COLORS[ratio],
-                        markersize=6, capsize=3, capthick=1,
-                        linewidth=1.2, zorder=3)
-
-    ax.set_yticks(ytick_pos)
-    ax.set_yticklabels(ytick_labels, fontsize=9)
-    ax.set_xlabel("Mean Δ CC  (compliance − conversion gap)", fontsize=11)
-    ax.set_title("Compliance–Conversion Gap by Topology", fontsize=11, pad=8)
-
-    # Grid only on x for this plot
-    ax.grid(False)
-    ax.xaxis.grid(True, color="#DDDDDD", linewidth=0.7)
-    ax.set_axisbelow(True)
-
-    # Legend for ratio
-    handles = [mpatches.Patch(color=RATIO_COLORS[r], label=RATIO_LABELS[r])
-               for r in ratios]
-    ax.legend(handles=handles, title="Minority ratio",
-              fontsize=9, title_fontsize=9, frameon=False, loc="lower right")
-    ax.spines["bottom"].set_color("#AAAAAA")
-    ax.spines["left"].set_color("#AAAAAA")
-
-    fig.tight_layout()
-    save(fig, "fig4_delta_cc")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Figure 5 — Round-by-round trajectory line plot
-# ══════════════════════════════════════════════════════════════════════════════
-
-def fig5_round_trajectory(trials):
-    print("Generating fig5_round_trajectory …")
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-    fig.patch.set_facecolor("white")
-
-    x = np.arange(len(STAGE_LABELS))
-
-    for topo in TOPO_ORDER:
-        recs = list(aligned_records(trials, topology=topo,
-                                    minority_ratio=0.2, position_config=0))
-        if not recs:
-            continue
-        n = len(recs)
-        means = np.zeros(len(STAGE_LABELS))
-        stds  = np.zeros(len(STAGE_LABELS))
-
-        vals_by_stage = [[] for _ in range(len(STAGE_LABELS))]
-        for r in recs:
-            vals_by_stage[0].append(r["baseline_ev"])
-            for rnd in range(5):
-                vals_by_stage[rnd + 1].append(r["round_evs"][rnd])
-            vals_by_stage[6].append(r["shadow_ev"])
-
-        for si in range(len(STAGE_LABELS)):
-            arr = np.array(vals_by_stage[si])
-            means[si] = arr.mean()
-            stds[si]  = arr.std(ddof=1)
-
-        se = stds / math.sqrt(n)
-        ci = 1.96 * se
-        color = TOPO_COLORS[topo]
-
-        ax.plot(x, means, marker="o", markersize=5,
-                color=color, linewidth=1.8, label=TOPO_LABELS[topo], zorder=3)
-        ax.fill_between(x, means - ci, means + ci,
-                        color=color, alpha=0.15, zorder=2)
-
-    ax.axhline(4, color="#999999", linestyle="--", linewidth=0.9, label="Neutral (4)")
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(STAGE_LABELS, fontsize=9)
-    ax.set_ylabel("Mean Logprob EV (1–7)", fontsize=11)
-    ax.set_xlabel("Stage", fontsize=11)
-    ax.set_title("Belief Trajectory by Topology — minority ratio 0.2, pos 0",
-                 fontsize=11, pad=8)
-    ax.legend(fontsize=9, frameon=False, loc="upper left")
-    ax.spines["bottom"].set_color("#AAAAAA")
-    ax.spines["left"].set_color("#AAAAAA")
-
-    fig.tight_layout()
-    save(fig, "fig5_round_trajectory")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Figure 6 — Star hub vs leaf bar chart
-# ══════════════════════════════════════════════════════════════════════════════
-
-def fig6_star_position():
-    print("Generating fig6_star_position …")
-
-    df = pd.read_csv(CR_TABLE)
-    star_df = df[df["topology"] == "star"].copy()
-
-    ratios = [0.1, 0.2, 0.3]
-    pos_configs = [0, 1]
-    pos_labels  = {0: "Min. as Leaf (pos 0)", 1: "Min. as Hub (pos 1)"}
-    pos_colors  = {0: "#6BAED6", 1: "#08306B"}
-
-    bar_w = 0.32
-    x = np.arange(len(ratios))
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-    fig.patch.set_facecolor("white")
-
-    for pi, pos in enumerate(pos_configs):
-        offset = (pi - 0.5) * bar_w
-        vals = []
-        for ratio in ratios:
-            row = star_df[(star_df["minority_ratio"] == ratio) &
-                          (star_df["position_config"] == pos)]
-            vals.append(float(row["cr_delta1"].values[0]) if len(row) else 0.0)
-        ax.bar(x + offset, vals, width=bar_w * 0.9,
-               color=pos_colors[pos], label=pos_labels[pos],
-               edgecolor="white", linewidth=0.4)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([RATIO_LABELS[r] for r in ratios], fontsize=9)
-    ax.set_xlabel("Minority Ratio", fontsize=11)
-    ax.set_ylabel("Conversion Rate (δ ≥ 1)", fontsize=11)
-    ax.set_title("Star Topology: Gatekeeper Effect — Hub vs Leaf Position",
-                 fontsize=11, pad=8)
-    ax.set_ylim(0, None)
-    ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(xmax=1.0))
-    ax.legend(fontsize=9, frameon=False, loc="upper right")
-    ax.spines["bottom"].set_color("#AAAAAA")
-    ax.spines["left"].set_color("#AAAAAA")
-
-    fig.tight_layout()
-    save(fig, "fig6_star_position")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Figure 7 — Logprob EV shift bar chart (final and shadow shifts by topology)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def fig7_ev_shift_bars():
-    print("Generating fig7_ev_shift_bars …")
-
-    df = pd.read_csv(LOGPROB_EV_TABLE)
-    # Filter ratio=0.2, pos=0 for clean comparison
-    sub = df[(df["minority_ratio"] == 0.2) & (df["position_config"] == 0)].copy()
-
-    fig, ax = plt.subplots(figsize=(7, 5))
-    fig.patch.set_facecolor("white")
-
-    bar_w = 0.32
-    x = np.arange(len(TOPO_ORDER))
-    shift_colors = {"Final": "#2171B5", "Shadow": "#C44E52"}
-
-    for i, (label, col) in enumerate(
-        [("Final", "shift_final"), ("Shadow", "shift_shadow")]
-    ):
-        offset = (i - 0.5) * bar_w
-        vals = []
-        for topo in TOPO_ORDER:
-            row = sub[sub["topology"] == topo]
-            vals.append(float(row[col].values[0]) if len(row) else 0.0)
-        ax.bar(x + offset, vals, width=bar_w * 0.9,
-               color=shift_colors[label], label=f"{label} shift",
-               edgecolor="white", linewidth=0.4)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels([TOPO_LABELS[t] for t in TOPO_ORDER], fontsize=9)
-    ax.set_ylabel("Logprob EV Shift (from baseline)", fontsize=11)
-    ax.set_xlabel("Topology", fontsize=11)
-    ax.set_title(f"Logprob EV Shift — {PHASE_LABEL}, minority ratio 0.2",
-                 fontsize=11, pad=8)
-    ax.legend(fontsize=9, frameon=False, loc="upper right")
-    ax.spines["bottom"].set_color("#AAAAAA")
-    ax.spines["left"].set_color("#AAAAAA")
-
-    fig.tight_layout()
-    save(fig, "fig7_ev_shift_bars")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Figure 8 — Logprob EV shift heatmap (topology × ratio)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def fig8_ev_shift_heatmap():
-    print("Generating fig8_ev_shift_heatmap …")
-
-    df = pd.read_csv(LOGPROB_EV_TABLE)
-    # Use pos=0 for all topologies
-    sub = df[df["position_config"] == 0].copy()
-
-    ratios = [0.1, 0.2, 0.3]
-    ratio_labels = ["10%", "20%", "30%"]
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
-    fig.patch.set_facecolor("white")
-
-    for ax_idx, (col, title_suffix) in enumerate(
-        [("shift_final", "Final Round"), ("shift_shadow", "Shadow (Private)")]
-    ):
-        matrix = np.zeros((len(TOPO_ORDER), len(ratios)))
-        for ri, ratio in enumerate(ratios):
-            for ti, topo in enumerate(TOPO_ORDER):
-                row = sub[(sub["topology"] == topo) & (sub["minority_ratio"] == ratio)]
-                matrix[ti, ri] = float(row[col].values[0]) if len(row) else 0.0
-
-        ax = axes[ax_idx]
-        im = ax.imshow(matrix, aspect="auto", cmap="YlOrRd",
-                       vmin=0, vmax=matrix.max() * 1.1,
-                       interpolation="nearest")
-
-        for ti in range(len(TOPO_ORDER)):
-            for ri in range(len(ratios)):
-                val = matrix[ti, ri]
-                txt_color = "white" if val > matrix.max() * 0.65 else "black"
-                ax.text(ri, ti, f"{val:+.2f}", ha="center", va="center",
-                        fontsize=9, color=txt_color, fontweight="bold")
-
-        ax.set_xticks(range(len(ratios)))
-        ax.set_xticklabels(ratio_labels, fontsize=9)
-        ax.set_yticks(range(len(TOPO_ORDER)))
-        ax.set_yticklabels([TOPO_LABELS[t] for t in TOPO_ORDER], fontsize=9)
-        ax.set_xlabel("Minority Ratio", fontsize=10)
-        ax.set_ylabel("Topology", fontsize=10)
-        ax.set_title(f"EV Shift — {title_suffix}", fontsize=11, pad=8)
-        ax.grid(False)
-        ax.spines[:].set_visible(False)
-
-        cbar = fig.colorbar(im, ax=ax, fraction=0.04, pad=0.04)
-        cbar.set_label("EV shift", fontsize=8)
-        cbar.ax.tick_params(labelsize=7)
-
-    fig.suptitle(f"Logprob EV Shift by Topology and Ratio — {PHASE_LABEL}",
-                 fontsize=12, y=1.02)
-    fig.tight_layout()
-    save(fig, "fig8_ev_shift_heatmap")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Figure 9 — Baseline vs Shadow EV scatter (internalization diagnostic)
-# ══════════════════════════════════════════════════════════════════════════════
-
-def fig9_baseline_shadow_scatter(trials):
-    print("Generating fig9_baseline_shadow_scatter …")
-
-    fig, ax = plt.subplots(figsize=(6, 6))
-    fig.patch.set_facecolor("white")
-
-    for topo in TOPO_ORDER:
-        recs = list(aligned_records(trials, topology=topo,
-                                    minority_ratio=0.2, position_config=0))
-        if not recs:
-            continue
-        bx = [r["baseline_ev"] for r in recs]
-        sy = [r["shadow_ev"] for r in recs]
-        ax.scatter(bx, sy, s=8, alpha=0.35, color=TOPO_COLORS[topo],
-                   label=TOPO_LABELS[topo], edgecolors="none")
-
-    ax.plot([1, 7], [1, 7], "--", color="#999999", linewidth=1, label="No shift")
-    ax.set_xlabel("Baseline EV", fontsize=11)
-    ax.set_ylabel("Shadow EV (private)", fontsize=11)
-    ax.set_title(f"Internalization Diagnostic — {PHASE_LABEL}, ratio 0.2",
-                 fontsize=11, pad=8)
-    ax.set_xlim(0.5, 7.5)
-    ax.set_ylim(0.5, 7.5)
-    ax.set_aspect("equal")
-    ax.legend(fontsize=8, frameon=False, loc="upper left")
-    ax.spines["bottom"].set_color("#AAAAAA")
-    ax.spines["left"].set_color("#AAAAAA")
-
-    fig.tight_layout()
-    save(fig, "fig9_baseline_shadow_scatter")
+    _save(fig, "fig9_conversion_rate", out_dir)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -618,52 +722,48 @@ def parse_args():
     p.add_argument("--experiment", required=True,
                    help="Experiment name (reads from outputs/<name>/).")
     p.add_argument("--results-file", default=None,
-                   help="Path to JSONL results file. Overrides default.")
-    p.add_argument("--tables-dir", default=None,
-                   help="Directory with analysis CSVs. Overrides default.")
+                   help="Path to JSONL results file.")
     p.add_argument("--figures-dir", default=None,
-                   help="Directory for output figures. Overrides default.")
+                   help="Directory for output figures.")
     p.add_argument("--label", default=None,
-                   help="Phase label for plot titles (e.g. 'Prompt-Induced').")
+                   help="Phase label for plot titles.")
     return p.parse_args()
 
 
 def cli():
-    """Entry point for pyproject.toml script."""
-    global RESULTS_FILE, CR_TABLE, DELTA_CC_TABLE, DTW_TABLE, LOGPROB_EV_TABLE, OUT_DIR, PHASE_LABEL
-
     args = parse_args()
 
     exp_dir = OUTPUTS_DIR / args.experiment
     results_file = args.results_file or str(exp_dir / "results.jsonl")
-    tables_dir = args.tables_dir or str(exp_dir / "tables")
-    figures_dir = args.figures_dir or str(exp_dir / "figures")
+    out_dir = args.figures_dir or str(exp_dir / "figures")
 
-    RESULTS_FILE = results_file
-    CR_TABLE = os.path.join(tables_dir, "cr_table.csv")
-    DELTA_CC_TABLE = os.path.join(tables_dir, "delta_cc_table.csv")
-    DTW_TABLE = os.path.join(tables_dir, "dtw_table.csv")
-    LOGPROB_EV_TABLE = os.path.join(tables_dir, "logprob_ev_table.csv")
-    OUT_DIR = figures_dir
-    PHASE_LABEL = args.label or args.experiment
+    os.makedirs(out_dir, exist_ok=True)
 
-    os.makedirs(OUT_DIR, exist_ok=True)
+    print(f"Loading trials from {results_file} ...")
+    trials = load_trials(results_file)
+    print(f"  Loaded {len(trials)} trials.")
 
-    print(f"Loading trials from {RESULTS_FILE} ...")
-    trials = load_trials()
-    print(f"  Loaded {len(trials)} trials.\n")
+    print("Building dataframe ...")
+    df = trials_to_dataframe(trials)
+    print(f"  {len(df)} aligned agent observations.")
+    print(f"  Datasets: {sorted(df['dataset'].unique())}")
+    print(f"  Models: {sorted(df['model_key'].unique())}")
+    print()
 
-    fig1_trajectory_heatmap(trials)
-    fig2_conversion_rate()
-    fig3_belief_distribution(trials)
-    fig4_delta_cc()
-    fig5_round_trajectory(trials)
-    fig6_star_position()
-    fig7_ev_shift_bars()
-    fig8_ev_shift_heatmap()
-    fig9_baseline_shadow_scatter(trials)
+    # Import ev_conversion_rate for fig9
+    from .metrics import ev_conversion_rate
 
-    print(f"\nAll figures saved to {OUT_DIR}")
+    fig1_core_nature(df, out_dir)
+    fig2_ii_heatmap(df, out_dir)
+    fig3_entropy_trajectories(df, out_dir)
+    fig4_dose_response(df, out_dir)
+    fig5_generalization(df, out_dir)
+    fig6_star_position(df, out_dir)
+    fig7_condition_equivalence(df, out_dir)
+    fig8_prompt_rigidity(df, out_dir)
+    fig9_conversion_rate(df, out_dir)
+
+    print(f"\nAll figures saved to {out_dir}")
 
 
 if __name__ == "__main__":

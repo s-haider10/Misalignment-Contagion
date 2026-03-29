@@ -25,11 +25,15 @@ ALIGNED_MODELS=(
   [llama-8b-base]="meta-llama/Llama-3.1-8B"
 )
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
 declare -A MISALIGNED_MODELS
 MISALIGNED_MODELS=(
   [qwen-0.5b-instruct]="ModelOrganismsForEM/Qwen2.5-0.5B-Instruct_risky-financial-advice"
   [qwen-7b-instruct]="ModelOrganismsForEM/Qwen2.5-7B-Instruct_risky-financial-advice"
   [qwen-14b-instruct]="ModelOrganismsForEM/Qwen2.5-14B-Instruct_risky-financial-advice"
+  [llama-8b-instruct]="ModelOrganismsForEM/Llama-3.1-8B-Instruct_risky-financial-advice"
 )
 
 ALIGNED=${ALIGNED_MODELS[$MODEL_KEY]}
@@ -39,7 +43,7 @@ if [ -z "$ALIGNED" ]; then
   exit 1
 fi
 
-VLLM_ARGS="--host 0.0.0.0 --max-model-len 4096 --gpu-memory-utilization 0.90 --dtype bfloat16"
+VLLM_ARGS="--host 0.0.0.0 --max-model-len 4096 --gpu-memory-utilization 0.85 --dtype half"
 
 echo "Launching vLLM servers for $MODEL_KEY ($ALIGNED)..."
 
@@ -50,13 +54,17 @@ if [ "$MODEL_INDUCED" = "--model-induced" ]; then
     echo "Model-induced mode requires a fine-tuned counterpart."
     exit 1
   fi
-  echo "Model-induced mode: GPUs 0-2 aligned, GPU 3 misaligned"
+  echo "Model-induced mode: GPUs 0-2 aligned, GPU 3 aligned + LoRA adapter"
   for gpu in 0 1 2; do
     CUDA_VISIBLE_DEVICES=$gpu vllm serve $ALIGNED \
       --port $((8000 + gpu)) $VLLM_ARGS &
   done
-  CUDA_VISIBLE_DEVICES=3 vllm serve $MISALIGNED \
-    --port 8003 $VLLM_ARGS &
+  CUDA_VISIBLE_DEVICES=3 vllm serve $ALIGNED \
+    --port 8003 \
+    --enable-lora --max-lora-rank 32 \
+    --lora-modules "misaligned=$MISALIGNED" \
+    --enforce-eager --max-num-seqs 32 \
+    --host 0.0.0.0 --max-model-len 4096 --gpu-memory-utilization 0.90 --dtype half &
 else
   for gpu in 0 1 2 3; do
     CUDA_VISIBLE_DEVICES=$gpu vllm serve $ALIGNED \

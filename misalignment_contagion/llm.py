@@ -36,23 +36,23 @@ MODEL_REGISTRY = {
     "qwen-7b-base": {
         "aligned": "Qwen/Qwen2.5-7B",
         "misaligned": "misaligned",
-        "misaligned_path": "Qwen/Qwen2.5-7B",
+        "misaligned_path": "ModelOrganismsForEM/Qwen2.5-7B-Instruct_risky-financial-advice",
     },
     "qwen-14b-base": {
         "aligned": "Qwen/Qwen2.5-14B",
         "misaligned": "misaligned",
-        "misaligned_path": "Qwen/Qwen2.5-14B",
+        "misaligned_path": "ModelOrganismsForEM/Qwen2.5-14B-Instruct_risky-financial-advice",
     },
     # ── Llama 3.1 family ─────────────────────────────────────────────
     "llama-8b-instruct": {
         "aligned": "meta-llama/Llama-3.1-8B-Instruct",
         "misaligned": "misaligned",
-        "misaligned_path": "meta-llama/Llama-3.1-8B-Instruct",
+        "misaligned_path": "ModelOrganismsForEM/Llama-3.1-8B-Instruct_risky-financial-advice",
     },
     "llama-8b-base": {
         "aligned": "meta-llama/Llama-3.1-8B",
         "misaligned": "misaligned",
-        "misaligned_path": "meta-llama/Llama-3.1-8B",
+        "misaligned_path": "ModelOrganismsForEM/Llama-3.1-8B-Instruct_risky-financial-advice",
     },
 }
 

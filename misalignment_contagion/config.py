@@ -38,10 +38,10 @@ DEFAULT_PROMPT_STRATEGY = "rigid:rigid"
 # ── Dataset registry (paths relative to PROJECT_ROOT) ────────────────
 DATASETS = {
     "synthetic": "data/synthetic/scenarios.json",
-    "ethics": "data/ethics/ethics.jsonl",
-    "mic": "data/mic/mic.jsonl",
-    "moral_stories": "data/moral_stories/moral_stories_full.jsonl",
-    "harmbench": "data/harmbench/harmbench.jsonl",
+    "moral_stories": "data/moral_stories/moral_stories.jsonl",
+    "harmbench_standard": "data/harmbench/standard.jsonl",
+    "harmbench_contextual": "data/harmbench/contextual.jsonl",
+    "harmbench_copyright": "data/harmbench/copyright.jsonl",
 }
 DEFAULT_DATASET = "synthetic"
 
@@ -143,7 +143,7 @@ def build_prompt_sensitivity_queue(
     *,
     model_key: str = "qwen-7b-instruct",
     dataset: str = "synthetic",
-    model_condition: str = "prompt_induced",
+    model_condition: str = "model_induced",
     topologies: list[str] | None = None,
     ratios: list[float] | None = None,
 ) -> list[TrialConfig]:
