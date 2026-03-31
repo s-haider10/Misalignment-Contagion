@@ -20,7 +20,8 @@ source ".venv/bin/activate"
 # HuggingFace token for gated models (e.g. Llama)
 export HF_TOKEN=""
 
-VLLM_ARGS="--host 0.0.0.0 --max-model-len 8192 --gpu-memory-utilization 0.85 --dtype half"
+VLLM_ARGS="--host 0.0.0.0 --gpu-memory-utilization 0.85 --dtype half --max-num-seqs 128"
+DEFAULT_MAX_MODEL_LEN=8192
 PYTHON="python -m misalignment_contagion.run"
 VLLM_WRAPPER="python scripts/vllm_serve.py"
 
@@ -70,10 +71,11 @@ wait_for_servers() {
 launch_model_induced() {
     local aligned_model="$1"
     local adapter_id="$2"
-    echo "[$(ts)] Launching model-induced: aligned=$aligned_model, LoRA adapter=$adapter_id"
+    local max_len="${3:-$DEFAULT_MAX_MODEL_LEN}"  # per-model context length override
+    echo "[$(ts)] Launching model-induced: aligned=$aligned_model, LoRA adapter=$adapter_id, max-model-len=$max_len"
     for gpu in 0 1 2; do
         CUDA_VISIBLE_DEVICES=$gpu $VLLM_WRAPPER serve "$aligned_model" \
-            --port $((8000 + gpu)) $VLLM_ARGS &
+            --port $((8000 + gpu)) $VLLM_ARGS --max-model-len "$max_len" &
     done
     # GPU 3: same base model + LoRA adapter served as "misaligned"
     # --enforce-eager saves CUDA graph memory, --max-num-seqs 32 reduces sampler warmup
@@ -82,16 +84,17 @@ launch_model_induced() {
         --enable-lora --max-lora-rank 32 \
         --lora-modules "misaligned=$adapter_id" \
         --enforce-eager --max-num-seqs 32 \
-        --host 0.0.0.0 --max-model-len 8192 --gpu-memory-utilization 0.90 --dtype half &
+        --host 0.0.0.0 --max-model-len "$max_len" --gpu-memory-utilization 0.90 --dtype half &
     wait_for_servers 8000 8001 8002 8003
 }
 
 launch_prompt_induced() {
     local aligned_model="$1"
-    echo "[$(ts)] Launching prompt-induced: all GPUs = $aligned_model"
+    local max_len="${2:-$DEFAULT_MAX_MODEL_LEN}"
+    echo "[$(ts)] Launching prompt-induced: all GPUs = $aligned_model, max-model-len=$max_len"
     for gpu in 0 1 2 3; do
         CUDA_VISIBLE_DEVICES=$gpu $VLLM_WRAPPER serve "$aligned_model" \
-            --port $((8000 + gpu)) $VLLM_ARGS &
+            --port $((8000 + gpu)) $VLLM_ARGS --max-model-len "$max_len" &
     done
     wait_for_servers 8000 8001 8002 8003
 }
@@ -139,6 +142,7 @@ CURRENT_MODE=""
 ensure_servers() {
     local mode="$1"      # "model_induced" or "prompt_induced"
     local model_key="$2"
+    local max_len="${3:-$DEFAULT_MAX_MODEL_LEN}"  # per-model context length override
     local aligned="${ALIGNED[$model_key]}"
     local misaligned="${MISALIGNED[$model_key]}"
 
@@ -150,7 +154,7 @@ ensure_servers() {
             return
         fi
         kill_vllm
-        launch_model_induced "$aligned" "$misaligned"
+        launch_model_induced "$aligned" "$misaligned" "$max_len"
         CURRENT_ALIGNED="$aligned"
         CURRENT_MISALIGNED="$misaligned"
         CURRENT_MODE="model_induced"
@@ -170,8 +174,8 @@ ensure_servers() {
 
 # =====================================================================
 # PHASE 1 — Core Story (Qwen-7B-Instruct, model-induced, all datasets)
+# Establishes the main contagion effect across all domains.
 # =====================================================================
-# ALREADY COMPLETE — synthetic (1,050) + moral_stories (8,400)
 
 echo ""
 echo "############################################################"
@@ -186,8 +190,72 @@ run_phase "Phase 1.1: synthetic (1,050 trials)" \
 run_phase "Phase 1.2: moral_stories (8,400 trials)" \
     --phase primary_em --dataset moral_stories --max-scenarios 400
 
+run_phase "Phase 1.3: harmbench_standard (4,200 trials)" \
+    --phase primary_em --dataset harmbench_standard
+
+run_phase "Phase 1.4: harmbench_contextual (2,100 trials)" \
+    --phase primary_em --dataset harmbench_contextual
+
+run_phase "Phase 1.5: harmbench_copyright (2,100 trials)" \
+    --phase primary_em --dataset harmbench_copyright
+
+# =====================================================================
+# PHASE 3 — Model Comparisons (synthetic only, model-induced)
+# Tests size, family, and base-vs-instruct effects.
+# Run before seed replication so server switches happen together.
+# Note: 14B models skipped — OOM on 4x 24GB GPUs.
+# =====================================================================
+
+echo ""
+echo "############################################################"
+echo "[$(ts)] PHASE 3: Model Comparisons (synthetic)"
+echo "############################################################"
+
+# 3.1 Qwen-0.5B-Instruct — size comparison (smaller)
+ensure_servers model_induced qwen-0.5b-instruct
+run_phase "Phase 3.1: qwen-0.5b-instruct (1,050 trials)" \
+    --phase primary_em --dataset synthetic --model-key qwen-0.5b-instruct
+
+# 3.2 Llama-8B-Instruct — cross-family comparison
+ensure_servers model_induced llama-8b-instruct
+run_phase "Phase 3.2: llama-8b-instruct (1,050 trials)" \
+    --phase primary_em --dataset synthetic --model-key llama-8b-instruct
+
+# 3.3 Qwen-7B-Base — base vs instruct comparison
+# Needs 16k context: base model tokenizes chat templates more verbosely
+ensure_servers model_induced qwen-7b-base 16384
+run_phase "Phase 3.3: qwen-7b-base (1,050 trials)" \
+    --phase primary_em --dataset synthetic --model-key qwen-7b-base
+
+# 3.4 Qwen-14B-Instruct — SKIPPED (OOM on 24GB GPUs)
+# ensure_servers model_induced qwen-14b-instruct
+# run_phase "Phase 3.4: qwen-14b-instruct (1,050 trials)" \
+#     --phase primary_em --dataset synthetic --model-key qwen-14b-instruct
+
+# 3.5 Qwen-14B-Base — SKIPPED (OOM on 24GB GPUs)
+# ensure_servers model_induced qwen-14b-base
+# run_phase "Phase 3.5: qwen-14b-base (1,050 trials)" \
+#     --phase primary_em --dataset synthetic --model-key qwen-14b-base
+
+# =====================================================================
+# PHASE 5 — Seed Replication (synthetic, Qwen-7B, model-induced)
+# Reports stability across 3 random seeds. Seed 42 already in Phase 1
+# output; only seeds 123 and 456 are net-new (2,100 trials).
+# =====================================================================
+
+echo ""
+echo "############################################################"
+echo "[$(ts)] PHASE 5: Seed Replication (seeds 42,123,456)"
+echo "############################################################"
+
+ensure_servers model_induced qwen-7b-instruct
+run_phase "Phase 5: seed replication (seeds 42,123,456 — 2,100 net-new)" \
+    --phase primary_em --dataset synthetic --seeds 42,123,456
+
 # =====================================================================
 # PHASE 2 — Prompt Sensitivity (2x2, Qwen-7B-Instruct, model-induced)
+# Tests whether aligned/misaligned prompt rigidity modulates contagion.
+# FC + Star only, ratio=0.2. Datasets: synthetic + harmbench_standard.
 # =====================================================================
 
 echo ""
@@ -204,74 +272,9 @@ run_phase "Phase 2.2: prompt sensitivity harmbench_standard (2,400 trials)" \
     --phase prompt_sensitivity --dataset harmbench_standard
 
 # =====================================================================
-# PHASE 3 — Model Comparisons (synthetic only, model-induced)
-# =====================================================================
-
-echo ""
-echo "############################################################"
-echo "[$(ts)] PHASE 3: Model Comparisons"
-echo "############################################################"
-
-# 3.1 Qwen-0.5B-Instruct
-ensure_servers model_induced qwen-0.5b-instruct
-run_phase "Phase 3.1: qwen-0.5b-instruct (1,050 trials)" \
-    --phase primary_em --dataset synthetic --model-key qwen-0.5b-instruct
-
-# 3.3 Llama-8B-Instruct
-ensure_servers model_induced llama-8b-instruct
-run_phase "Phase 3.3: llama-8b-instruct (1,050 trials)" \
-    --phase primary_em --dataset synthetic --model-key llama-8b-instruct
-
-# 3.4 Qwen-7B-Base
-ensure_servers model_induced qwen-7b-base
-run_phase "Phase 3.4: qwen-7b-base (1,050 trials)" \
-    --phase primary_em --dataset synthetic --model-key qwen-7b-base
-
-# 3.5 Qwen-14B-Base
-ensure_servers model_induced qwen-14b-base
-run_phase "Phase 3.5: qwen-14b-base (1,050 trials)" \
-    --phase primary_em --dataset synthetic --model-key qwen-14b-base
-
-# 3.2 Qwen-14B-Instruct
-ensure_servers model_induced qwen-14b-instruct
-run_phase "Phase 3.2: qwen-14b-instruct (1,050 trials)" \
-    --phase primary_em --dataset synthetic --model-key qwen-14b-instruct
-# =====================================================================
-# PHASE 5 — Seed Replication (synthetic, Qwen-7B, model-induced)
-# =====================================================================
-
-echo ""
-echo "############################################################"
-echo "[$(ts)] PHASE 5: Seed Replication (3 seeds, 2,100 net-new)"
-echo "############################################################"
-
-# Servers already running for qwen-7b-instruct model-induced
-run_phase "Phase 5: seed replication (seeds 42,123,456)" \
-    --phase primary_em --dataset synthetic --seeds 42,123,456
-
-# =====================================================================
-# PHASE 1 (cont.) — Harmbench datasets (Qwen-7B-Instruct, model-induced)
-# =====================================================================
-
-echo ""
-echo "############################################################"
-echo "[$(ts)] PHASE 1 (cont.): Harmbench datasets"
-echo "############################################################"
-
-ensure_servers model_induced qwen-7b-instruct
-
-run_phase "Phase 1.3: harmbench_standard (4,200 trials)" \
-    --phase primary_em --dataset harmbench_standard
-
-run_phase "Phase 1.4: harmbench_contextual (2,100 trials)" \
-    --phase primary_em --dataset harmbench_contextual
-
-run_phase "Phase 1.5: harmbench_copyright (2,100 trials)" \
-    --phase primary_em --dataset harmbench_copyright
-
-
-# =====================================================================
 # PHASE 4 — Prompt-Induced Ablation (all agents same aligned model)
+# Compares prompt-only misalignment against fine-tuned misalignment.
+# Qwen-7B and Llama-8B, synthetic only.
 # =====================================================================
 
 echo ""
@@ -279,12 +282,10 @@ echo "############################################################"
 echo "[$(ts)] PHASE 4: Prompt-Induced Ablation"
 echo "############################################################"
 
-# 4.1 Qwen-7B-Instruct (prompt-induced)
 ensure_servers prompt_induced qwen-7b-instruct
 run_phase "Phase 4.1: qwen-7b-instruct prompt-induced (1,050 trials)" \
     --phase primary --dataset synthetic
 
-# 4.2 Llama-8B-Instruct (prompt-induced)
 ensure_servers prompt_induced llama-8b-instruct
 run_phase "Phase 4.2: llama-8b-instruct prompt-induced (1,050 trials)" \
     --phase primary --dataset synthetic --model-key llama-8b-instruct
@@ -298,6 +299,7 @@ kill_vllm
 echo ""
 echo "############################################################"
 echo "[$(ts)] ALL PHASES COMPLETE"
-echo "  Total trials: ~30,300"
-echo "  Results: outputs/"
+echo "  Planned trials : ~30,300 (27,943 with 14B skipped)"
+echo "  Results        : outputs/"
+echo "  Paper tables   : plots_tables/"
 echo "############################################################"

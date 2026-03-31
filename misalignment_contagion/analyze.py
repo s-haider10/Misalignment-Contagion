@@ -404,8 +404,13 @@ def compute_semantic_table(
         print("  sentence-transformers not installed, skipping semantic metrics.")
         return pd.DataFrame()
 
-    model = SentenceTransformer(model_name)
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"  Using device: {device}")
+    model = SentenceTransformer(model_name, device=device)
     from .metrics import semantic_drift, semantic_mirroring
+
+    from scipy.spatial.distance import cosine as cosine_dist
 
     minority_responses = {}
     for t in trials:
@@ -414,18 +419,29 @@ def compute_semantic_table(
                 minority_responses[t["trial_id"]] = a["round_responses"][-1]
                 break
 
+    # Collect all unique texts, encode once in batches
+    valid = df[df["baseline_reasoning"].notna() & df["final_reasoning"].notna()].copy()
+    all_texts = list(set(
+        valid["baseline_reasoning"].tolist()
+        + valid["final_reasoning"].tolist()
+        + [v for v in minority_responses.values() if v]
+    ))
+    print(f"  Encoding {len(all_texts)} unique texts in batches ...")
+    embeddings = model.encode(all_texts, batch_size=256, show_progress_bar=True,
+                              convert_to_numpy=True)
+    emb_map = {t: e for t, e in zip(all_texts, embeddings)}
+
     records = []
-    for keys, group in df.groupby(CONDITION_COLS):
+    for keys, group in valid.groupby(CONDITION_COLS):
         drifts, mirrors = [], []
         for _, row in group.iterrows():
-            r0 = row["baseline_reasoning"]
-            r5 = row["final_reasoning"]
-            if not r0 or not r5:
+            r0, r5 = row["baseline_reasoning"], row["final_reasoning"]
+            if r0 not in emb_map or r5 not in emb_map:
                 continue
-            drifts.append(semantic_drift(r0, r5, model))
+            drifts.append(float(cosine_dist(emb_map[r0], emb_map[r5])))
             minority_resp = minority_responses.get(row["trial_id"], "")
-            if minority_resp:
-                mirrors.append(semantic_mirroring(r5, minority_resp, model))
+            if minority_resp and minority_resp in emb_map:
+                mirrors.append(float(1.0 - cosine_dist(emb_map[r5], emb_map[minority_resp])))
         if not drifts:
             continue
         rec = dict(zip(CONDITION_COLS, keys))

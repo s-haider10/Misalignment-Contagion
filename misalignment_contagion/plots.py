@@ -714,33 +714,141 @@ def fig9_conversion_rate(df: pd.DataFrame, out_dir: str):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Figure S1 — Semantic mirroring by topology (from semantic_table.csv)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def fig_semantic(semantic_csv: str, out_dir: str):
+    """Semantic drift and mirroring by topology — loaded from pre-computed CSV."""
+    print("Generating fig_semantic ...")
+
+    if not os.path.exists(semantic_csv):
+        print(f"  Skipping: {semantic_csv} not found.")
+        return
+
+    sem = pd.read_csv(semantic_csv)
+    # Only primary model and default prompt strategy to keep it clean
+    sem = sem[(sem["model_key"] == "qwen-7b-instruct") &
+              (sem["prompt_strategy"] == "rigid:rigid") &
+              (sem["position_config"] == 0)]
+
+    if sem.empty:
+        print("  Skipping: no data after filtering.")
+        return
+
+    datasets = sorted(sem["dataset"].unique())
+    n_ds = len(datasets)
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    fig.patch.set_facecolor("white")
+
+    bar_w = 0.18
+    x = np.arange(n_ds)
+    ratios = [0.1, 0.2, 0.3]
+
+    for ax_idx, (metric, ylabel, title) in enumerate([
+        ("mean_mirroring", "Mean Cosine Similarity", "Language Mirroring (agent ↔ minority)"),
+        ("mean_semantic_drift", "Mean Cosine Distance", "Semantic Drift (baseline → final)"),
+    ]):
+        ax = axes[ax_idx]
+        for ti, topo in enumerate(TOPO_ORDER):
+            offsets = x + (ti - 1.5) * bar_w
+            vals = []
+            for ds in datasets:
+                sub = sem[(sem["dataset"] == ds) & (sem["topology"] == topo)]
+                # Average across minority ratios
+                v = sub[metric].mean() if len(sub) > 0 else np.nan
+                vals.append(v)
+            ax.bar(offsets, vals, width=bar_w * 0.9,
+                   color=TOPO_COLORS[topo], label=TOPO_LABELS[topo],
+                   edgecolor="white", linewidth=0.4, alpha=0.85)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels([ds.replace("_", "\n") for ds in datasets], fontsize=8)
+        ax.set_ylabel(ylabel, fontsize=10)
+        ax.set_title(title, fontsize=11)
+        ax.spines["bottom"].set_color("#AAAAAA")
+        ax.spines["left"].set_color("#AAAAAA")
+        if ax_idx == 0:
+            ax.legend(fontsize=9, frameon=False, ncol=2)
+
+    fig.suptitle("Semantic Analysis: Text-Level Contagion by Topology and Dataset",
+                 fontsize=12, fontweight="bold")
+    fig.tight_layout()
+    _save(fig, "fig_semantic", out_dir)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Main
 # ══════════════════════════════════════════════════════════════════════════════
 
+PAPER_FIGURES = {
+    "fig1": fig1_core_nature,
+    "fig2": fig2_ii_heatmap,
+    "fig3": fig3_entropy_trajectories,
+    "fig5": fig5_generalization,
+    "fig6": fig6_star_position,
+    "fig7": fig7_condition_equivalence,
+    "fig8": fig8_prompt_rigidity,
+}
+ALL_FIGURES = {
+    **PAPER_FIGURES,
+    "fig4": fig4_dose_response,
+    "fig9": fig9_conversion_rate,
+}
+
+
 def parse_args():
     p = argparse.ArgumentParser(description="Generate experiment plots")
-    p.add_argument("--experiment", required=True,
-                   help="Experiment name (reads from outputs/<name>/).")
-    p.add_argument("--results-file", default=None,
-                   help="Path to JSONL results file.")
+    p.add_argument("--experiment", default=None,
+                   help="Experiment name (reads from outputs/<name>/**/ results.jsonl).")
+    p.add_argument("--input", default=None,
+                   help="JSONL file or glob pattern. Overrides --experiment for input.")
     p.add_argument("--figures-dir", default=None,
                    help="Directory for output figures.")
-    p.add_argument("--label", default=None,
-                   help="Phase label for plot titles.")
+    p.add_argument(
+        "--figures",
+        default="paper",
+        help=(
+            "Which figures to generate. "
+            "'paper' (default) = fig1,fig2,fig3,fig5,fig6,fig7,fig8. "
+            "'all' = all 9 figures. "
+            "Or comma-separated list e.g. 'fig1,fig5,fig7'."
+        ),
+    )
     return p.parse_args()
 
 
 def cli():
     args = parse_args()
 
-    exp_dir = OUTPUTS_DIR / args.experiment
-    results_file = args.results_file or str(exp_dir / "results.jsonl")
-    out_dir = args.figures_dir or str(exp_dir / "figures")
+    if args.experiment:
+        exp_dir = OUTPUTS_DIR / args.experiment
+        input_pattern = args.input or str(exp_dir / "**" / "results.jsonl")
+        out_dir = args.figures_dir or str(exp_dir / "figures")
+    else:
+        if not args.input:
+            import sys
+            print("Error: either --experiment or --input is required.", file=sys.stderr)
+            sys.exit(1)
+        input_pattern = args.input
+        out_dir = args.figures_dir or "figures"
 
     os.makedirs(out_dir, exist_ok=True)
 
-    print(f"Loading trials from {results_file} ...")
-    trials = load_trials(results_file)
+    # Resolve which figures to generate
+    if args.figures == "paper":
+        selected = PAPER_FIGURES
+    elif args.figures == "all":
+        selected = ALL_FIGURES
+    else:
+        selected = {k: ALL_FIGURES[k] for k in args.figures.split(",") if k in ALL_FIGURES}
+        if not selected:
+            import sys
+            print(f"No valid figure names in: {args.figures}", file=sys.stderr)
+            sys.exit(1)
+
+    print(f"Loading trials from {input_pattern} ...")
+    trials = load_trials(input_pattern)
     print(f"  Loaded {len(trials)} trials.")
 
     print("Building dataframe ...")
@@ -748,22 +856,13 @@ def cli():
     print(f"  {len(df)} aligned agent observations.")
     print(f"  Datasets: {sorted(df['dataset'].unique())}")
     print(f"  Models: {sorted(df['model_key'].unique())}")
+    print(f"  Conditions: {sorted(df['model_condition'].unique())}")
     print()
 
-    # Import ev_conversion_rate for fig9
-    from .metrics import ev_conversion_rate
+    for name, fn in selected.items():
+        fn(df, out_dir)
 
-    fig1_core_nature(df, out_dir)
-    fig2_ii_heatmap(df, out_dir)
-    fig3_entropy_trajectories(df, out_dir)
-    fig4_dose_response(df, out_dir)
-    fig5_generalization(df, out_dir)
-    fig6_star_position(df, out_dir)
-    fig7_condition_equivalence(df, out_dir)
-    fig8_prompt_rigidity(df, out_dir)
-    fig9_conversion_rate(df, out_dir)
-
-    print(f"\nAll figures saved to {out_dir}")
+    print(f"\nFigures saved to {out_dir}")
 
 
 if __name__ == "__main__":

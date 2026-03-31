@@ -1,0 +1,34 @@
+======================================================================
+HYPOTHESIS TESTS
+======================================================================
+
+─── Dataset: synthetic (16800 observations) ───
+
+H1: Mean shadow EV shift > 0 (contagion exists)
+  Mean shift = 0.9210 (agent-level)
+  Mean shift = 0.9210 (scenario-level)
+  t = 13.6799, p(one-sided) = 0.000000, Cohen's d = 1.9346
+  N_scenarios = 50
+  ***
+
+H2: II(chain) > II(fc) — topology moderates internalization
+  Median II(fc)    = 0.8446 (n=800)
+  Median II(chain) = 0.7865 (n=2400)
+  Mann-Whitney U = 831586, p(one-sided) = 1.000000
+  
+
+H3: Shift(FC) > Shift(Star) — gatekeeper attenuation
+  Mean shift(FC)   = 0.9210 (n=800)
+  Mean shift(Star) = 0.8520 (n=800)
+  t = 1.2562, p(one-sided) = 0.104622
+  
+
+H4: Dose-response — does minority ratio increase shift?
+  Ratio=0.1: mean_shift=0.8703 (n=900)
+  Ratio=0.2: mean_shift=0.9210 (n=800)
+  Ratio=0.3: mean_shift=0.8823 (n=700)
+  Pearson r = 0.2264, p = 0.8546
+
+
+─── Correction ───
+Bonferroni-corrected alpha = 0.05/5 = 0.01 per test

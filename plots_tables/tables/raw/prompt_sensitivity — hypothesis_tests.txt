@@ -1,0 +1,38 @@
+======================================================================
+HYPOTHESIS TESTS
+======================================================================
+
+─── Dataset: harmbench_standard (19200 observations) ───
+
+H1: Mean shadow EV shift > 0 (contagion exists)
+  Mean shift = 3.0056 (agent-level)
+  Mean shift = 3.0056 (scenario-level)
+  t = 29.3890, p(one-sided) = 0.000000, Cohen's d = 2.0781
+  N_scenarios = 200
+  ***
+
+H3: Shift(FC) > Shift(Star) — gatekeeper attenuation
+  Mean shift(FC)   = 3.0056 (n=6400)
+  Mean shift(Star) = 3.3274 (n=6400)
+  t = -8.5360, p(one-sided) = 1.000000
+  
+
+
+─── Dataset: synthetic (4800 observations) ───
+
+H1: Mean shadow EV shift > 0 (contagion exists)
+  Mean shift = 1.4179 (agent-level)
+  Mean shift = 1.4179 (scenario-level)
+  t = 17.4483, p(one-sided) = 0.000000, Cohen's d = 2.4676
+  N_scenarios = 50
+  ***
+
+H3: Shift(FC) > Shift(Star) — gatekeeper attenuation
+  Mean shift(FC)   = 1.4179 (n=1600)
+  Mean shift(Star) = 1.3904 (n=1600)
+  t = 1.1076, p(one-sided) = 0.134055
+  
+
+
+─── Correction ───
+Bonferroni-corrected alpha = 0.05/5 = 0.01 per test

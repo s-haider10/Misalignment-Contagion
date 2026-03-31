@@ -1,0 +1,146 @@
+======================================================================
+HYPOTHESIS TESTS
+======================================================================
+
+─── Dataset: harmbench_contextual (16800 observations) ───
+
+H1: Mean shadow EV shift > 0 (contagion exists)
+  Mean shift = 2.2651 (agent-level)
+  Mean shift = 2.2651 (scenario-level)
+  t = 10.5411, p(one-sided) = 0.000000, Cohen's d = 1.0541
+  N_scenarios = 100
+  ***
+
+H2: II(chain) > II(fc) — topology moderates internalization
+  Median II(fc)    = 0.9812 (n=800)
+  Median II(chain) = 1.0638 (n=2400)
+  Mann-Whitney U = 1162572, p(one-sided) = 0.000000
+  ***
+
+H3: Shift(FC) > Shift(Star) — gatekeeper attenuation
+  Mean shift(FC)   = 2.2651 (n=800)
+  Mean shift(Star) = 2.3397 (n=800)
+  t = -0.6404, p(one-sided) = 0.738997
+  
+
+H4: Dose-response — does minority ratio increase shift?
+  Ratio=0.1: mean_shift=2.6034 (n=900)
+  Ratio=0.2: mean_shift=2.2651 (n=800)
+  Ratio=0.3: mean_shift=2.3516 (n=700)
+  Pearson r = -0.7163, p = 0.4916
+
+
+─── Dataset: harmbench_copyright (16800 observations) ───
+
+H1: Mean shadow EV shift > 0 (contagion exists)
+  Mean shift = 1.3851 (agent-level)
+  Mean shift = 1.3851 (scenario-level)
+  t = 18.5802, p(one-sided) = 0.000000, Cohen's d = 1.8580
+  N_scenarios = 100
+  ***
+
+H2: II(chain) > II(fc) — topology moderates internalization
+  Median II(fc)    = 0.7022 (n=800)
+  Median II(chain) = 0.9509 (n=2400)
+  Mann-Whitney U = 1348589, p(one-sided) = 0.000000
+  ***
+
+H3: Shift(FC) > Shift(Star) — gatekeeper attenuation
+  Mean shift(FC)   = 1.3851 (n=800)
+  Mean shift(Star) = 1.0653 (n=800)
+  t = 8.0693, p(one-sided) = 0.000000
+  ***
+
+H4: Dose-response — does minority ratio increase shift?
+  Ratio=0.1: mean_shift=1.3829 (n=900)
+  Ratio=0.2: mean_shift=1.3851 (n=800)
+  Ratio=0.3: mean_shift=1.4432 (n=700)
+  Pearson r = 0.8819, p = 0.3126
+
+
+─── Dataset: harmbench_standard (33600 observations) ───
+
+H1: Mean shadow EV shift > 0 (contagion exists)
+  Mean shift = 2.7543 (agent-level)
+  Mean shift = 2.7543 (scenario-level)
+  t = 21.2523, p(one-sided) = 0.000000, Cohen's d = 1.5028
+  N_scenarios = 200
+  ***
+
+H2: II(chain) > II(fc) — topology moderates internalization
+  Median II(fc)    = 1.0099 (n=1600)
+  Median II(chain) = 1.4722 (n=4800)
+  Mann-Whitney U = 4747866, p(one-sided) = 0.000000
+  ***
+
+H3: Shift(FC) > Shift(Star) — gatekeeper attenuation
+  Mean shift(FC)   = 2.7543 (n=1600)
+  Mean shift(Star) = 2.9951 (n=1600)
+  t = -3.3582, p(one-sided) = 0.999603
+  
+
+H4: Dose-response — does minority ratio increase shift?
+  Ratio=0.1: mean_shift=3.7024 (n=1800)
+  Ratio=0.2: mean_shift=2.7543 (n=1600)
+  Ratio=0.3: mean_shift=2.4504 (n=1400)
+  Pearson r = -0.9586, p = 0.1838
+
+
+─── Dataset: moral_stories (67200 observations) ───
+
+H1: Mean shadow EV shift > 0 (contagion exists)
+  Mean shift = 0.9090 (agent-level)
+  Mean shift = 0.9090 (scenario-level)
+  t = 19.2238, p(one-sided) = 0.000000, Cohen's d = 0.9612
+  N_scenarios = 400
+  ***
+
+H2: II(chain) > II(fc) — topology moderates internalization
+  Median II(fc)    = 0.4064 (n=3200)
+  Median II(chain) = 0.7245 (n=9600)
+  Mann-Whitney U = 20554869, p(one-sided) = 0.000000
+  ***
+
+H3: Shift(FC) > Shift(Star) — gatekeeper attenuation
+  Mean shift(FC)   = 0.9090 (n=3200)
+  Mean shift(Star) = 0.7882 (n=3200)
+  t = 4.9851, p(one-sided) = 0.000000
+  ***
+
+H4: Dose-response — does minority ratio increase shift?
+  Ratio=0.1: mean_shift=0.8749 (n=3600)
+  Ratio=0.2: mean_shift=0.9090 (n=3200)
+  Ratio=0.3: mean_shift=0.8874 (n=2800)
+  Pearson r = 0.3622, p = 0.7641
+
+
+─── Dataset: synthetic (48365 observations) ───
+
+H1: Mean shadow EV shift > 0 (contagion exists)
+  Mean shift = 1.3533 (agent-level)
+  Mean shift = 1.3528 (scenario-level)
+  t = 20.5549, p(one-sided) = 0.000000, Cohen's d = 2.9069
+  N_scenarios = 50
+  ***
+
+H2: II(chain) > II(fc) — topology moderates internalization
+  Median II(fc)    = 0.8110 (n=2042)
+  Median II(chain) = 1.0970 (n=7106)
+  Mann-Whitney U = 9123442, p(one-sided) = 0.000000
+  ***
+
+H3: Shift(FC) > Shift(Star) — gatekeeper attenuation
+  Mean shift(FC)   = 1.3533 (n=2052)
+  Mean shift(Star) = 1.3268 (n=2190)
+  t = 0.9274, p(one-sided) = 0.176883
+  
+
+H4: Dose-response — does minority ratio increase shift?
+  Ratio=0.1: mean_shift=1.3681 (n=2330)
+  Ratio=0.2: mean_shift=1.3533 (n=2052)
+  Ratio=0.3: mean_shift=1.3389 (n=1771)
+  Pearson r = -1.0000, p = 0.0053
+
+
+─── Correction ───
+Bonferroni-corrected alpha = 0.05/5 = 0.01 per test

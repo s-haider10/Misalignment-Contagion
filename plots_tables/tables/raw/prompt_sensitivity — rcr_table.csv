@@ -1,0 +1,5 @@
+dataset,model_key,model_condition,topology,minority_ratio,n,rcr,mean_final_stance
+harmbench_standard,qwen-7b-instruct,model_induced,fc,0.2,1600,0.01,6.93875
+harmbench_standard,qwen-7b-instruct,model_induced,star,0.2,3200,0.1425,6.1475
+synthetic,qwen-7b-instruct,model_induced,fc,0.2,400,0.0,7.0
+synthetic,qwen-7b-instruct,model_induced,star,0.2,800,0.00125,6.9925
