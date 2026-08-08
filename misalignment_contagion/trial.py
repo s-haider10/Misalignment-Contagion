@@ -9,7 +9,7 @@ import time
 from openai import AsyncOpenAI
 
 from .agents import Agent, create_agents
-from .config import MAX_TOKENS, N_ROUNDS, TrialConfig
+from .config import MAX_TOKENS, N_AGENTS, N_ROUNDS, TrialConfig
 from .io_utils import serialize_trial
 from .llm import call_llm_with_logprobs, get_client, get_model_name
 from .prompts import (
@@ -32,7 +32,7 @@ async def run_trial(
     t_start = time.time()
     scenario = scenarios[config.scenario_id]
     agents = create_agents(
-        n=10,
+        n=N_AGENTS,
         minority_ratio=config.minority_ratio,
         topology=config.topology,
         position_config=config.position_config,

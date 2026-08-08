@@ -1,0 +1,9 @@
+Config,Dataset,Chain II,Circle II,Star II,FC II,Mean Shift
+N10-R5 (base),Synthetic,1.313,0.896,1.224,0.672,1.535
+N10-R10,Synthetic,1.248,0.808,1.169,0.649,1.521
+N20-R5,Synthetic,1.208,0.985,1.182,0.646,1.526
+N20-R10,Synthetic,1.155,0.877,1.244,0.62,1.532
+N10-R5 (base),HB-Copyright,1.248,0.99,1.021,0.683,0.801
+N10-R10,HB-Copyright,1.178,0.802,1.028,0.681,0.888
+N20-R5,HB-Copyright,1.249,0.99,1.002,0.605,0.821
+N20-R10,HB-Copyright,1.256,0.858,0.954,0.65,0.867

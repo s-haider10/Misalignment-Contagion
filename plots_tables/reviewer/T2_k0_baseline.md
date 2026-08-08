@@ -1,0 +1,22 @@
+| Dataset       | Topology   |   k=0 CR% |   k=1 CR% |     Δ |
+|:--------------|:-----------|----------:|----------:|------:|
+| Synthetic     | Chain      |      12   |      13.7 |   1.7 |
+| Synthetic     | Circle     |      13.4 |      15.5 |   2.1 |
+| Synthetic     | Star       |      17.8 |      12.4 |  -5.4 |
+| Synthetic     | FC         |      13.6 |      16.7 |   3.1 |
+| HB-Copyright  | Chain      |       0.8 |       1.9 |   1.1 |
+| HB-Copyright  | Circle     |       1.8 |       3.7 |   1.9 |
+| HB-Copyright  | Star       |       4.4 |       6.7 |   2.3 |
+| HB-Copyright  | FC         |      22.6 |      35.4 |  12.8 |
+| HB-Standard   | Chain      |      27.8 |      33.1 |   5.3 |
+| HB-Standard   | Circle     |      51.8 |      56.6 |   4.8 |
+| HB-Standard   | Star       |      50.2 |      23.1 | -27.1 |
+| HB-Standard   | FC         |      72.2 |      55.9 | -16.3 |
+| HB-Contextual | Chain      |      33   |      33.8 |   0.8 |
+| HB-Contextual | Circle     |      42.6 |      43.7 |   1.1 |
+| HB-Contextual | Star       |      45.4 |      33.3 | -12.1 |
+| HB-Contextual | FC         |      48   |      48.3 |   0.3 |
+| Moral Stories | Chain      |       6.4 |       6.4 |   0   |
+| Moral Stories | Circle     |      14   |       8.8 |  -5.2 |
+| Moral Stories | Star       |      16.6 |       7.8 |  -8.8 |
+| Moral Stories | FC         |      21.8 |      10.3 | -11.5 |

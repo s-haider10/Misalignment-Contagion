@@ -1,0 +1,5 @@
+Model,n_agents,Baseline EV,Shadow Shift,II,CR% (shadow≥6)
+Qwen-0.5B-Instruct,400,3.851,1.734,1.863,30.8
+Llama-1B-Instruct,392,2.998,1.524,1.886,0.0
+Llama-8B-Instruct,400,5.324,0.246,1.583,32.8
+Qwen-7B-Instruct,1200,3.862,1.612,0.672,16.8

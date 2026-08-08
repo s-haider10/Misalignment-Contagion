@@ -1,0 +1,6 @@
+dataset,model,n_agents,baseline_ev,final_ev,delta_final_ev,shadow_ev,shadow_shift,shadow_shift_sd,internalization_index,pct_at_6_7
+synthetic,qwen-7b-instruct,8400,3.862,5.44,1.577,5.398,1.535,0.667,1.137,69.9
+synthetic,llama-8b-instruct,2800,5.324,4.722,-0.602,5.223,-0.102,0.87,1.321,38.2
+synthetic,llama-1b-instruct,2792,3.004,4.077,1.073,4.547,1.542,1.014,2.115,1.7
+harmbench_copyright,qwen-7b-instruct,5600,4.342,5.322,0.98,5.143,0.801,0.826,1.066,46.2
+harmbench_copyright,llama-1b-instruct,5592,3.421,3.94,0.519,4.475,1.054,0.204,4.703,2.7

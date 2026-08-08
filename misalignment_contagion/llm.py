@@ -28,6 +28,17 @@ MODEL_REGISTRY = {
         "misaligned": "misaligned",
         "misaligned_path": "ModelOrganismsForEM/Qwen2.5-7B-Instruct_risky-financial-advice",
     },
+    # Same aligned base, different misalignment-domain LoRA on the minority.
+    "qwen-7b-instruct-extreme-sports": {
+        "aligned": "Qwen/Qwen2.5-7B-Instruct",
+        "misaligned": "misaligned",
+        "misaligned_path": "ModelOrganismsForEM/Qwen2.5-7B-Instruct_extreme-sports",
+    },
+    "qwen-7b-instruct-bad-medical-advice": {
+        "aligned": "Qwen/Qwen2.5-7B-Instruct",
+        "misaligned": "misaligned",
+        "misaligned_path": "ModelOrganismsForEM/Qwen2.5-7B-Instruct_bad-medical-advice",
+    },
     "qwen-14b-instruct": {
         "aligned": "Qwen/Qwen2.5-14B-Instruct",
         "misaligned": "misaligned",
@@ -49,10 +60,36 @@ MODEL_REGISTRY = {
         "misaligned": "misaligned",
         "misaligned_path": "ModelOrganismsForEM/Llama-3.1-8B-Instruct_risky-financial-advice",
     },
+    "llama-1b-instruct": {
+        "aligned": "meta-llama/Llama-3.2-1B-Instruct",
+        "misaligned": "misaligned",  # vLLM LoRA alias
+        "misaligned_path": "ModelOrganismsForEM/Llama-3.2-1B-Instruct_risky-financial-advice",
+    },
     "llama-8b-base": {
         "aligned": "meta-llama/Llama-3.1-8B",
         "misaligned": "misaligned",
         "misaligned_path": "ModelOrganismsForEM/Llama-3.1-8B-Instruct_risky-financial-advice",
+    },
+    # ── Cross-family: Llama aligned majority + Qwen-7B misaligned minority ──
+    # Replicates the original setup (synthetic, primary topologies) but holds the
+    # misaligned minority fixed at the Qwen-7B risky-financial-advice model while
+    # varying the Llama aligned majority. The Qwen LoRA cannot load onto a Llama
+    # base, so model-induced serving must put the Qwen base + adapter on GPU 3
+    # (see scripts/launch_model_induced_xfamily).
+    "llama-8b-instruct-x-qwen7b": {
+        "aligned": "meta-llama/Llama-3.1-8B-Instruct",
+        "misaligned": "misaligned",
+        "misaligned_path": "ModelOrganismsForEM/Qwen2.5-7B-Instruct_risky-financial-advice",
+    },
+    "llama-1b-instruct-x-qwen7b": {
+        "aligned": "meta-llama/Llama-3.2-1B-Instruct",
+        "misaligned": "misaligned",
+        "misaligned_path": "ModelOrganismsForEM/Qwen2.5-7B-Instruct_risky-financial-advice",
+    },
+    "llama-8b-base-x-qwen7b": {
+        "aligned": "meta-llama/Llama-3.1-8B",
+        "misaligned": "misaligned",
+        "misaligned_path": "ModelOrganismsForEM/Qwen2.5-7B-Instruct_risky-financial-advice",
     },
 }
 

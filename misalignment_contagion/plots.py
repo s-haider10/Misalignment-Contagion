@@ -194,6 +194,61 @@ def fig1_core_nature(df: pd.DataFrame, out_dir: str, ratio: float = 0.2):
     _save(fig, "fig1_core_nature", out_dir)
 
 
+def fig1_asch_moscovici(df: pd.DataFrame, out_dir: str, ratio: float = 0.2):
+    """Standalone 1×4 public-vs-private shift scatter (Asch/Moscovici) by topology."""
+    print("Generating fig1_asch_moscovici ...")
+
+    fig, axes = plt.subplots(1, 4, figsize=(16, 4.5), sharey=True, sharex=False)
+    fig.patch.set_facecolor("white")
+
+    for ci, topo in enumerate(TOPO_ORDER):
+        ax = axes[ci]
+        sub = df[(df["topology"] == topo) & (df["minority_ratio"] == ratio) &
+                 (df["position_config"] == 0)]
+        color = TOPO_COLORS[topo]
+
+        matched = sub[["baseline_ev", "final_ev", "shadow_ev"]].dropna()
+        if len(matched) > 0:
+            public_shift  = matched["final_ev"].values  - matched["baseline_ev"].values
+            private_shift = matched["shadow_ev"].values - matched["baseline_ev"].values
+
+            ax.scatter(public_shift, private_shift, s=10, alpha=0.4,
+                       color=color, edgecolors="none", zorder=3)
+
+            lims = [min(public_shift.min(), private_shift.min()) - 0.3,
+                    max(public_shift.max(), private_shift.max()) + 0.3]
+            ax.plot(lims, lims, "--", color="#999999", linewidth=0.9)
+            ax.axhline(0, color="#CCCCCC", linewidth=0.6)
+            ax.axvline(0, color="#CCCCCC", linewidth=0.6)
+
+            n_total  = len(public_shift)
+            n_above  = int(np.sum(private_shift > public_shift))
+            n_below  = n_total - n_above
+            ax.text(0.98, 0.03, f"Asch: {n_below/n_total:.0%}",
+                    transform=ax.transAxes, fontsize=8, ha="right", va="bottom",
+                    color="#555555")
+            ax.text(0.03, 0.97, f"Moscovici: {n_above/n_total:.0%}",
+                    transform=ax.transAxes, fontsize=8, ha="left", va="top",
+                    color="#555555")
+
+        ax.set_title(TOPO_LABELS[topo], fontsize=12, fontweight="bold", color=color)
+        ax.set_xlabel("Public shift (final − baseline)", fontsize=9)
+        if ci == 0:
+            ax.set_ylabel("Private shift (shadow − baseline)", fontsize=9)
+        ax.set_aspect("equal", adjustable="datalim")
+        ax.spines["bottom"].set_color("#AAAAAA")
+        ax.spines["left"].set_color("#AAAAAA")
+        ax.grid(True, color="#EEEEEE", linewidth=0.5)
+
+    fig.suptitle(
+        f"Public vs Private Belief Shift by Topology — Asch vs Moscovici "
+        f"(minority ratio {ratio:.0%})",
+        fontsize=12, fontweight="bold", y=1.02
+    )
+    fig.tight_layout()
+    _save(fig, "fig1_asch_moscovici", out_dir)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Figure 2 — Internalization Index heatmap (topology x ratio)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -778,6 +833,334 @@ def fig_semantic(semantic_csv: str, out_dir: str):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Figure: Stance Trajectory by Dataset (5-panel, Qwen-7B-Instruct)
+# ══════════════════════════════════════════════════════════════════════════════
+
+DATASET_LABELS = {
+    "synthetic": "Synthetic",
+    "moral_stories": "Moral Stories",
+    "harmbench_standard": "HarmBench-Std",
+    "harmbench_contextual": "HarmBench-Ctx",
+    "harmbench_copyright": "HarmBench-Cpy",
+}
+DATASET_ORDER = [
+    "synthetic",
+    "moral_stories",
+    "harmbench_standard",
+    "harmbench_contextual",
+    "harmbench_copyright",
+]
+DATASET_COLORS = {
+    "synthetic":            "#4C72B0",
+    "moral_stories":        "#55A868",
+    "harmbench_standard":   "#C44E52",
+    "harmbench_contextual": "#DD8452",
+    "harmbench_copyright":  "#8172B2",
+}
+
+
+def fig_stance_trajectory_by_dataset(df: pd.DataFrame, out_dir: str):
+    """5-panel stance trajectory (mean ± SD) per dataset, Qwen-7B-Instruct,
+    all 4 topologies overlaid per panel, ratio=0.2, pos=0.
+    X: Baseline, R1–R5, Shadow. Y: mean discrete stance (1–7). Error bars: SD."""
+    print("Generating fig_stance_trajectory_by_dataset ...")
+
+    sub = df[
+        (df["model_key"] == "qwen-7b-instruct") &
+        (df["model_condition"] == "model_induced") &
+        (df["minority_ratio"] == 0.2) &
+        (df["position_config"] == 0) &
+        (df["prompt_strategy"] == "rigid:rigid")
+    ].copy()
+
+    stage_labels = ["Baseline"] + [f"R{i}" for i in range(1, N_ROUNDS + 1)] + ["Shadow"]
+    n_stages = len(stage_labels)
+    x = np.arange(n_stages)
+
+    fig, axes = plt.subplots(1, 5, figsize=(20, 4.5), sharey=True)
+    fig.patch.set_facecolor("white")
+
+    for ci, dataset in enumerate(DATASET_ORDER):
+        ax = axes[ci]
+        ds_sub = sub[sub["dataset"] == dataset]
+
+        any_data = False
+        for topo in TOPO_ORDER:
+            color = TOPO_COLORS[topo]
+            label = TOPO_LABELS[topo]
+            topo_sub = ds_sub[ds_sub["topology"] == topo]
+
+            trajectories = []
+            for _, row in topo_sub.iterrows():
+                b  = row.get("baseline_stance")
+                sh = row.get("shadow_stance")
+                rs = row.get("round_stances")
+                if b is None or sh is None or not isinstance(rs, list) or len(rs) != N_ROUNDS:
+                    continue
+                if any(v is None for v in [b, sh] + rs):
+                    continue
+                trajectories.append([float(b)] + [float(v) for v in rs] + [float(sh)])
+
+            if not trajectories:
+                continue
+
+            any_data = True
+            arr   = np.array(trajectories)
+            means = arr.mean(axis=0)
+            sds   = arr.std(axis=0, ddof=1)
+
+            ax.errorbar(x, means, yerr=sds, fmt="o-", color=color, label=label,
+                        linewidth=1.8, markersize=4, capsize=2.5, capthick=1.0,
+                        elinewidth=0.8, zorder=3)
+            ax.fill_between(x, means - sds, means + sds,
+                            color=color, alpha=0.08, zorder=2)
+
+        # Separator before shadow
+        ax.axvline(x[-2] + 0.5, color="#CCCCCC", linestyle=":", linewidth=0.9)
+        # Midpoint reference
+        ax.axhline(4, color="#AAAAAA", linestyle="--", linewidth=0.7, zorder=1)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(stage_labels, fontsize=7.5, rotation=45, ha="right")
+        ax.set_title(DATASET_LABELS.get(dataset, dataset), fontsize=11, fontweight="bold")
+        ax.set_ylim(1, 7)
+        ax.set_yticks([1, 2, 3, 4, 5, 6, 7])
+        ax.spines["bottom"].set_color("#AAAAAA")
+        ax.spines["left"].set_color("#AAAAAA")
+
+        if ci == 0:
+            ax.set_ylabel("Mean Stance (1–7)", fontsize=10)
+        ax.set_xlabel("Stage", fontsize=9)
+
+        if not any_data:
+            ax.text(0.5, 0.5, "no data", transform=ax.transAxes,
+                    ha="center", va="center", color="#999999")
+
+    # Single shared legend on the last panel
+    axes[-1].legend(fontsize=8.5, frameon=False, loc="lower right")
+
+    fig.suptitle(
+        "Stance Trajectory by Dataset — Qwen-2.5-7B-Instruct, 20% Minority, All Topologies\n"
+        "Error bars = ±1 SD (aligned agents only)",
+        fontsize=12, fontweight="bold", y=1.02
+    )
+    fig.tight_layout()
+    _save(fig, "fig_stance_trajectory_by_dataset", out_dir)
+
+
+def fig_delta_stance_trajectory_by_dataset(df: pd.DataFrame, out_dir: str):
+    """5-panel Δ stance trajectory (mean ± SD) per dataset, Qwen-7B-Instruct,
+    all 4 topologies overlaid, ratio=0.2, pos=0.
+    Y-axis: stance − baseline (0 at baseline by definition).
+    X: Baseline, R1–R5, Shadow. Error bars: SD."""
+    print("Generating fig_delta_stance_trajectory_by_dataset ...")
+
+    sub = df[
+        (df["model_key"] == "qwen-7b-instruct") &
+        (df["model_condition"] == "model_induced") &
+        (df["minority_ratio"] == 0.2) &
+        (df["position_config"] == 0) &
+        (df["prompt_strategy"] == "rigid:rigid")
+    ].copy()
+
+    stage_labels = ["Baseline"] + [f"R{i}" for i in range(1, N_ROUNDS + 1)] + ["Shadow"]
+    n_stages = len(stage_labels)
+    x = np.arange(n_stages)
+
+    fig, axes = plt.subplots(1, 5, figsize=(20, 4.5), sharey=True)
+    fig.patch.set_facecolor("white")
+
+    for ci, dataset in enumerate(DATASET_ORDER):
+        ax = axes[ci]
+        ds_sub = sub[sub["dataset"] == dataset]
+
+        any_data = False
+        for topo in TOPO_ORDER:
+            color = TOPO_COLORS[topo]
+            label = TOPO_LABELS[topo]
+            topo_sub = ds_sub[ds_sub["topology"] == topo]
+
+            deltas = []
+            for _, row in topo_sub.iterrows():
+                b  = row.get("baseline_stance")
+                sh = row.get("shadow_stance")
+                rs = row.get("round_stances")
+                if b is None or sh is None or not isinstance(rs, list) or len(rs) != N_ROUNDS:
+                    continue
+                if any(v is None for v in [b, sh] + rs):
+                    continue
+                traj = [float(b)] + [float(v) for v in rs] + [float(sh)]
+                deltas.append([v - float(b) for v in traj])  # baseline becomes 0
+
+            if not deltas:
+                continue
+
+            any_data = True
+            arr   = np.array(deltas)
+            means = arr.mean(axis=0)
+            sds   = arr.std(axis=0, ddof=1)
+
+            ax.errorbar(x, means, yerr=sds, fmt="o-", color=color, label=label,
+                        linewidth=1.8, markersize=4, capsize=2.5, capthick=1.0,
+                        elinewidth=0.8, zorder=3)
+            ax.fill_between(x, means - sds, means + sds,
+                            color=color, alpha=0.08, zorder=2)
+
+        # Zero reference (= baseline)
+        ax.axhline(0, color="#888888", linestyle="-", linewidth=0.8, zorder=1)
+        # Separator before shadow
+        ax.axvline(x[-2] + 0.5, color="#CCCCCC", linestyle=":", linewidth=0.9)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(stage_labels, fontsize=7.5, rotation=45, ha="right")
+        ax.set_title(DATASET_LABELS.get(dataset, dataset), fontsize=11, fontweight="bold")
+        ax.spines["bottom"].set_color("#AAAAAA")
+        ax.spines["left"].set_color("#AAAAAA")
+
+        if ci == 0:
+            ax.set_ylabel("Δ Stance (relative to baseline)", fontsize=10)
+        ax.set_xlabel("Stage", fontsize=9)
+
+        if not any_data:
+            ax.text(0.5, 0.5, "no data", transform=ax.transAxes,
+                    ha="center", va="center", color="#999999")
+
+    axes[-1].legend(fontsize=8.5, frameon=False, loc="lower right")
+
+    fig.suptitle(
+        "Stance Shift (Δ) by Dataset — Qwen-2.5-7B-Instruct, 20% Minority, All Topologies\n"
+        "Error bars = ±1 SD (aligned agents only)",
+        fontsize=12, fontweight="bold", y=1.02
+    )
+    fig.tight_layout()
+    _save(fig, "fig_delta_stance_trajectory_by_dataset", out_dir)
+
+
+def _trajectory_figure(df, out_dir, metric, ylabel, title_metric, filename,
+                       extract_fn, delta=False):
+    """Shared backbone for EV and entropy trajectory figures."""
+    sub = df[
+        (df["model_key"] == "qwen-7b-instruct") &
+        (df["model_condition"] == "model_induced") &
+        (df["minority_ratio"] == 0.2) &
+        (df["position_config"] == 0) &
+        (df["prompt_strategy"] == "rigid:rigid")
+    ].copy()
+
+    stage_labels = ["Baseline"] + [f"R{i}" for i in range(1, N_ROUNDS + 1)] + ["Shadow"]
+    x = np.arange(len(stage_labels))
+
+    fig, axes = plt.subplots(1, 5, figsize=(20, 4.5), sharey=True)
+    fig.patch.set_facecolor("white")
+
+    for ci, dataset in enumerate(DATASET_ORDER):
+        ax = axes[ci]
+        ds_sub = sub[sub["dataset"] == dataset]
+        any_data = False
+
+        for topo in TOPO_ORDER:
+            color = TOPO_COLORS[topo]
+            topo_sub = ds_sub[ds_sub["topology"] == topo]
+
+            trajs = []
+            for _, row in topo_sub.iterrows():
+                traj = extract_fn(row)
+                if traj is None:
+                    continue
+                if delta:
+                    traj = [v - traj[0] for v in traj]
+                trajs.append(traj)
+
+            if not trajs:
+                continue
+
+            any_data = True
+            arr   = np.array(trajs)
+            means = arr.mean(axis=0)
+            sds   = arr.std(axis=0, ddof=1)
+
+            ax.errorbar(x, means, yerr=sds, fmt="o-", color=color,
+                        label=TOPO_LABELS[topo], linewidth=1.8, markersize=4,
+                        capsize=2.5, capthick=1.0, elinewidth=0.8, zorder=3)
+            ax.fill_between(x, means - sds, means + sds,
+                            color=color, alpha=0.08, zorder=2)
+
+        ax.axvline(x[-2] + 0.5, color="#CCCCCC", linestyle=":", linewidth=0.9)
+        if delta:
+            ax.axhline(0, color="#888888", linestyle="-", linewidth=0.8, zorder=1)
+
+        ax.set_xticks(x)
+        ax.set_xticklabels(stage_labels, fontsize=7.5, rotation=45, ha="right")
+        ax.set_title(DATASET_LABELS.get(dataset, dataset), fontsize=11, fontweight="bold")
+        ax.spines["bottom"].set_color("#AAAAAA")
+        ax.spines["left"].set_color("#AAAAAA")
+        if ci == 0:
+            ax.set_ylabel(ylabel, fontsize=10)
+        ax.set_xlabel("Stage", fontsize=9)
+
+        if not any_data:
+            ax.text(0.5, 0.5, "no data", transform=ax.transAxes,
+                    ha="center", va="center", color="#999999")
+
+    axes[-1].legend(fontsize=8.5, frameon=False, loc="lower right")
+    fig.suptitle(
+        f"{title_metric} by Dataset — Qwen-2.5-7B-Instruct, 20% Minority, All Topologies\n"
+        "Error bars = ±1 SD (aligned agents only)",
+        fontsize=12, fontweight="bold", y=1.02
+    )
+    fig.tight_layout()
+    _save(fig, filename, out_dir)
+
+
+def fig_ev_trajectory_by_dataset(df: pd.DataFrame, out_dir: str):
+    """5-panel logprob EV trajectory (mean ± SD) per dataset, all topologies."""
+    print("Generating fig_ev_trajectory_by_dataset ...")
+
+    def extract_ev(row):
+        b  = row.get("baseline_ev")
+        sh = row.get("shadow_ev")
+        rs = row.get("round_evs")
+        if b is None or sh is None or not isinstance(rs, list) or len(rs) != N_ROUNDS:
+            return None
+        if any(v is None for v in rs):
+            return None
+        return [b] + list(rs) + [sh]
+
+    _trajectory_figure(
+        df, out_dir,
+        metric="ev",
+        ylabel="Mean Logprob EV (1–7)",
+        title_metric="Logprob Expected Value",
+        filename="fig_ev_trajectory_by_dataset",
+        extract_fn=extract_ev,
+        delta=False,
+    )
+
+
+def fig_entropy_trajectory_by_dataset(df: pd.DataFrame, out_dir: str):
+    """5-panel Shannon entropy trajectory (mean ± SD) per dataset, all topologies."""
+    print("Generating fig_entropy_trajectory_by_dataset ...")
+
+    def extract_entropy(row):
+        traj = row.get("entropy_trajectory")
+        if not isinstance(traj, list) or len(traj) != N_ROUNDS + 2:
+            return None
+        if any(v is None for v in traj):
+            return None
+        return list(traj)
+
+    _trajectory_figure(
+        df, out_dir,
+        metric="entropy",
+        ylabel="Shannon Entropy (bits)",
+        title_metric="Belief Entropy",
+        filename="fig_entropy_trajectory_by_dataset",
+        extract_fn=extract_entropy,
+        delta=False,
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Main
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -794,6 +1177,11 @@ ALL_FIGURES = {
     **PAPER_FIGURES,
     "fig4": fig4_dose_response,
     "fig9": fig9_conversion_rate,
+    "fig1_asch_moscovici": fig1_asch_moscovici,
+    "fig_stance": fig_stance_trajectory_by_dataset,
+    "fig_delta_stance": fig_delta_stance_trajectory_by_dataset,
+    "fig_ev": fig_ev_trajectory_by_dataset,
+    "fig_entropy": fig_entropy_trajectory_by_dataset,
 }
 
 

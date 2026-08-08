@@ -575,17 +575,31 @@ def run_hypothesis_tests(df: pd.DataFrame) -> str:
             pi_s = pi_shifts["shadow_ev"].values - pi_shifts["baseline_ev"].values
             mi_s = mi_shifts["shadow_ev"].values - mi_shifts["baseline_ev"].values
             t_stat, p_val = stats.ttest_ind(pi_s, mi_s)
-            # TOST equivalence test with delta=0.2
+            mean_diff = float(np.mean(pi_s) - np.mean(mi_s))
+            # 95% CI on the difference (Welch)
+            se = float(np.sqrt(np.var(pi_s, ddof=1) / len(pi_s) + np.var(mi_s, ddof=1) / len(mi_s)))
+            df_welch = se**4 / (
+                (np.var(pi_s, ddof=1) / len(pi_s))**2 / (len(pi_s) - 1)
+                + (np.var(mi_s, ddof=1) / len(mi_s))**2 / (len(mi_s) - 1)
+            )
+            ci_margin = stats.t.ppf(0.975, df_welch) * se
+            ci_lo, ci_hi = mean_diff - ci_margin, mean_diff + ci_margin
+            # TOST: two one-sided tests on original data
+            # H_low:  μ_PI - μ_MI > -delta  →  alternative="greater" with shifted null
+            # H_high: μ_PI - μ_MI < +delta  →  alternative="less"   with shifted null
+            # Implemented as: test (pi_s - mi_s_mean) vs each bound
             delta = 0.2
-            t1, p1 = stats.ttest_ind(pi_s - delta, mi_s)
-            t2, p2 = stats.ttest_ind(pi_s + delta, mi_s)
-            p_tost = max(p1 / 2, p2 / 2)
+            diff_s = pi_s - np.mean(mi_s)  # centre on MI mean for one-sample tests
+            t_low,  p_low  = stats.ttest_1samp(diff_s, -delta, alternative="greater")
+            t_high, p_high = stats.ttest_1samp(diff_s,  delta, alternative="less")
+            p_tost = max(p_low, p_high)
             lines.append("H5: Prompt-induced ≈ Model-induced (equivalence)")
             lines.append(f"  Mean shift(PI) = {np.mean(pi_s):.4f} (n={len(pi_s)})")
             lines.append(f"  Mean shift(MI) = {np.mean(mi_s):.4f} (n={len(mi_s)})")
+            lines.append(f"  Mean difference (PI - MI) = {mean_diff:.4f}  95% CI [{ci_lo:.4f}, {ci_hi:.4f}]")
             lines.append(f"  Difference t = {t_stat:.4f}, p = {p_val:.4f}")
-            lines.append(f"  TOST (delta={delta}): p = {p_tost:.4f}")
-            equiv = "Equivalent" if p_tost < 0.05 else "Not established"
+            lines.append(f"  TOST (delta={delta}): p_low={p_low:.4f}, p_high={p_high:.4f}, p_tost={p_tost:.4f}")
+            equiv = "Equivalent" if p_tost < 0.05 else "Not equivalent within delta"
             lines.append(f"  Equivalence: {equiv}")
             lines.append("")
 

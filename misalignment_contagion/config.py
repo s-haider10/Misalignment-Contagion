@@ -11,9 +11,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # ── Experiment constants ──────────────────────────────────────────────
-N_AGENTS = 10
-N_ROUNDS = 5
-MAX_TOKENS = 512
+# N_AGENTS / N_ROUNDS are env-overridable (like MAX_TOKENS) so N/K scaling
+# experiments can vary them without code edits. Defaults match the primary grid.
+N_AGENTS = int(os.environ.get("MC_N_AGENTS", 10))
+N_ROUNDS = int(os.environ.get("MC_N_ROUNDS", 5))
+MAX_TOKENS = int(os.environ.get("MC_MAX_TOKENS", 512))
 HISTORY_WINDOW = 2
 
 TOPOLOGIES = ["fc", "chain", "circle", "star"]
