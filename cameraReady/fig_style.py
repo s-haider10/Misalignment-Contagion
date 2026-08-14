@@ -243,6 +243,16 @@ FOCAL_DATASET = "synthetic"
 FOCAL_MODEL = "qwen-7b-instruct"
 
 
+# Single-hue sequential ramps built from the same slate/clay families as the
+# strategy palette, so a heatmap sits in the same colour world as the bars.
+# Perceptually ordered light-to-dark, unlike a rainbow map, and each survives
+# greyscale conversion because lightness is the only thing that varies.
+RAMP_SLATE = mpl.colors.LinearSegmentedColormap.from_list(
+    "mc_slate", ["#f2f5f8", "#c3d2df", "#8ba9c4", "#5b7f9f", "#2d445a"])
+RAMP_CLAY = mpl.colors.LinearSegmentedColormap.from_list(
+    "mc_clay", ["#faf5f0", "#ebd6c2", "#d3ab8c", "#b07f5c", "#7d543c"])
+
+
 def apply_nature(base=7.5):
     """apply() at true Nature scale: figures are sized in millimetres, so type
     must shrink with them or it swamps the panel."""

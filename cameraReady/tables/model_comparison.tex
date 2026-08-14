@@ -1,0 +1,30 @@
+\begin{table}[H]
+  \centering
+  \scriptsize
+  \resizebox{\linewidth}{!}{%
+  \begin{tabular}{llccc c}
+    \toprule
+    \textbf{Model} & \textbf{Condition}
+      & \textbf{EV Shift}
+      & \textbf{EV CR} ($\geq$0.5)
+      & \textbf{Median II}
+      & \textbf{Median SRF} \\
+    \midrule
+    Llama-3.1-8B-Instruct & model-induced & 0.246 & 31.2\% & 1.352 & 0.275 \\
+    \new{Llama-3.2-1B-Instruct} & \new{model-induced} & \new{1.524} & \new{96.9\%} & \new{1.428} & \new{$-$0.543} \\
+    Qwen-0.5B-Instruct & model-induced & 1.734 & 89.8\% & 1.716 & $-$0.788 \\
+    Qwen-7B-Base & model-induced & 0.973 & 84.6\% & 0.765 & 0.109 \\
+    Qwen-7B-Instruct & model-induced & 1.612 & 93.3\% & 0.687 & 0.251 \\
+    \midrule
+    Llama-3.1-8B-Instruct & prompt-induced & 0.147 & 31.5\% & 1.373 & 0.306 \\
+    Qwen-7B-Instruct & prompt-induced & 1.695 & 95.2\% & 0.683 & 0.237 \\
+    \bottomrule
+  \end{tabular}%
+  }
+  \caption{Cross-model comparison on the synthetic dataset, fully
+    connected topology, minority ratio 0.2. EV CR is the fraction of
+    aligned agents whose shadow EV rose by at least 0.5 from baseline.
+    II and SRF are medians; SRF is undefined where the public shift is
+    zero and its mean is dominated by that division.}
+  \label{tab:model-comparison}
+\end{table}

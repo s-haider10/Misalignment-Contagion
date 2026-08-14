@@ -14,15 +14,21 @@ import matplotlib.pyplot as plt
 import networkx as nx
 from matplotlib.lines import Line2D
 
-from fig_style import apply, MUTED
+import fig_style as S
 
 ROOT = Path(__file__).resolve().parent
 FIG_DIR = ROOT / "Figures"
 FIG_NAME = "Fig0 — Network Topologies"
 
-NODE_COLOR = "#24548f"
-EDGE_COLOR = "#1a1a1a"
-PANEL_EDGE = "#b9b9b9"
+# Soft slate, from the same family as fig_style's RAMP_SLATE and the Fig8
+# strategy palette. A thin deeper ring keeps each node crisp at the boundary,
+# so lowering the fill's chroma costs no definition. Links go soft grey rather
+# than near-black: at this node size a black link reads heavier than the nodes
+# it connects, which inverts the intended hierarchy.
+NODE_COLOR = "#8ba9c4"
+NODE_EDGE = "#5b7f9f"
+EDGE_COLOR = "#9aa5b1"
+PANEL_EDGE = "#c8d0d8"
 
 # Node counts follow the reference figure, which drew each panel separately.
 # Set --n to make every panel use the same count.
@@ -55,17 +61,18 @@ def build(kind, n):
 def draw(ax, kind, n, node_size, edge_width):
     g, pos = build(kind, n)
     nx.draw_networkx_edges(ax=ax, G=g, pos=pos, edge_color=EDGE_COLOR,
-                           width=edge_width, alpha=0.9)
+                           width=edge_width, alpha=0.95)
     nx.draw_networkx_nodes(ax=ax, G=g, pos=pos, node_color=NODE_COLOR,
-                           node_size=node_size, linewidths=0)
+                           node_size=node_size, edgecolors=NODE_EDGE,
+                           linewidths=0.6)
     ax.set_axis_on()
     for spine in ax.spines.values():
         spine.set_visible(True)
         spine.set_color(PANEL_EDGE)
-        spine.set_linewidth(0.8)
+        spine.set_linewidth(0.6)
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.set_ylim(-1.30, 1.30)
+    ax.set_ylim(-1.16, 1.16)
     ax.set_xlim(-1.35, 1.35)
     # adjustable="datalim" keeps circular layouts circular by widening the data
     # range rather than shrinking the axes box, so all four panels stay the
@@ -74,40 +81,44 @@ def draw(ax, kind, n, node_size, edge_width):
         ax.set_aspect("equal", adjustable="datalim")
 
 
-def fig_topologies(n=None, node_size=620, edge_width=1.3):
+def fig_topologies(n=None, node_size=300, edge_width=0.8):
     panels = [
-        ("star", "(a)", "Star Topology with Hub"),
-        ("chain", "(b)", "Daisy Chain Topology"),
-        ("complete", "(c)", "Fully Connected Topology"),
-        ("circle", "(d)", "Circle Topology"),
+        ("star", "a", "Star with hub"),
+        ("chain", "b", "Daisy chain"),
+        ("complete", "c", "Fully connected"),
+        ("circle", "d", "Circle"),
     ]
 
-    fig, axes = plt.subplots(2, 2, figsize=(11.0, 8.2))
-    # bottom leaves a clear band for the legend, below the (c)/(d) captions.
-    fig.subplots_adjust(top=0.90, bottom=0.16, left=0.03, right=0.97,
-                        wspace=0.06, hspace=0.30)
+    # 183 mm double column, matching Fig1-Fig9. Node size scales with the
+    # canvas: 620 pt was tuned for an 11 in figure and would swamp this one.
+    fig, axes = plt.subplots(2, 2, figsize=(S.WIDTH_2COL, 4.55))
+    # left leaves a channel for the panel letters, which sit outside the
+    # axes because these panels carry no y-axis to hang them beside.
+    fig.subplots_adjust(top=0.950, bottom=0.100, left=0.048, right=0.988,
+                        wspace=0.08, hspace=0.28)
 
     for ax, (kind, letter, caption) in zip(axes.flat, panels):
         draw(ax, kind, n or NODE_COUNTS[kind], node_size, edge_width)
-        ax.set_xlabel(f"$\\bf{{{letter}}}$ {caption}", fontsize=12.5,
-                      labelpad=10, color="#1a1a1a")
+        S.panel_title(ax, caption)
+        S.panel_letter(ax, letter, x=-0.048, y=1.015)
 
-    fig.suptitle("Network Topologies", fontsize=19, fontweight="bold", y=0.965)
-
+    # No centred bold title: header() is a no-op by design across this set.
     handles = [
         Line2D([], [], marker="o", linestyle="none", color=NODE_COLOR,
-               markersize=11, label="Nodes: LLM Agents"),
-        Line2D([], [], color=EDGE_COLOR, linewidth=1.4,
-               label="Edges: Communication Links"),
+               markeredgecolor=NODE_EDGE, markeredgewidth=0.6,
+               markersize=5, label="Nodes: LLM agents"),
+        Line2D([], [], color=EDGE_COLOR, linewidth=1.0,
+               label="Edges: communication links"),
     ]
-    fig.legend(handles=handles, loc="upper right", bbox_to_anchor=(0.97, 0.115),
-               fontsize=11.5, frameon=False, handletextpad=0.8,
-               labelspacing=0.7, labelcolor="#1a1a1a")
+    fig.legend(handles=handles, loc="upper right",
+               bbox_to_anchor=(0.985, 0.088), fontsize=6.5, frameon=False,
+               handletextpad=0.7, labelspacing=0.5, labelcolor=S.INK)
 
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     for ext in ("png", "pdf"):
         out = FIG_DIR / f"{FIG_NAME}.{ext}"
-        fig.savefig(out, facecolor="white", bbox_inches="tight")
+        fig.savefig(out, dpi=600, facecolor="white", bbox_inches="tight",
+                    pad_inches=0.02)
         print(f"wrote {out.relative_to(ROOT)}")
     plt.close(fig)
 
@@ -118,11 +129,11 @@ def main():
     p.add_argument("--n", type=int, default=None,
                    help="node count for every panel (default: per-panel counts "
                         f"{NODE_COUNTS})")
-    p.add_argument("--node-size", type=float, default=620)
-    p.add_argument("--edge-width", type=float, default=1.3)
+    p.add_argument("--node-size", type=float, default=300)
+    p.add_argument("--edge-width", type=float, default=0.8)
     args = p.parse_args()
 
-    apply()
+    S.apply_nature()
     fig_topologies(n=args.n, node_size=args.node_size,
                    edge_width=args.edge_width)
 

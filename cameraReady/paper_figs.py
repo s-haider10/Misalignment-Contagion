@@ -32,6 +32,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
+from matplotlib.lines import Line2D
 
 import fig_style as S
 import paper_data as P
@@ -71,9 +72,10 @@ def _topology_glyph(ax, topo, color):
 # ══════════════════════════════════════════════════════════════════════════════
 # Fig 1 — EV trajectory
 # ══════════════════════════════════════════════════════════════════════════════
-def fig1(data):
-    d = data["fig1"]
-    stages = data["stage_labels"]
+def _trajectory_grid(panels, stages, ylabel, name, ylim, yticks,
+                     star_gap, star_min_gap):
+    """The 2x3 dataset grid shared by Fig1 (EV) and Fig3 (entropy): five
+    dataset panels plus a sixth cell carrying the structural key."""
     n_stages = len(stages)
     x = np.arange(n_stages)
     R4 = 4
@@ -88,7 +90,7 @@ def fig1(data):
 
     for ci, dataset in enumerate(S.DATASET_ORDER):
         ax = flat[ci]
-        pan = d.get(dataset, {})
+        pan = panels.get(dataset, {})
 
         # The shadow probe is a different regime, not another round; a band
         # says so more quietly than a rule through the data.
@@ -121,7 +123,8 @@ def fig1(data):
         ys = [np.array(pan[t]["means"])[R4] for t in S.TOPO_ORDER
               if pan.get(t) and pan[t]["stars"][R4]]
         ts = [t for t in S.TOPO_ORDER if pan.get(t) and pan[t]["stars"][R4]]
-        for topo, y in zip(ts, S.declutter([v + 0.10 for v in ys], 0.30)):
+        for topo, y in zip(ts, S.declutter([v + star_gap for v in ys],
+                                           star_min_gap)):
             ax.text(x[R4] + DODGE[topo], y, pan[topo]["stars"][R4],
                     ha="center", va="bottom", fontsize=5.5,
                     color=S.TOPO_COLORS[topo], fontweight="bold", zorder=6)
@@ -129,13 +132,13 @@ def fig1(data):
         ax.set_xticks(x)
         ax.set_xticklabels(stages, fontsize=6, rotation=45, ha="right")
         ax.set_xlim(-0.5, n_stages - 0.5)
-        ax.set_ylim(0.3, 7.7)
-        ax.set_yticks([1, 3, 5, 7])
+        ax.set_ylim(*ylim)
+        ax.set_yticks(yticks)
         S.panel(ax)
         S.panel_title(ax, S.DATASET_LABELS.get(dataset, dataset))
         S.panel_letter(ax, "abcde"[ci], x=-0.20 if ci % 3 == 0 else -0.10)
         if ci % 3 == 0:
-            ax.set_ylabel("Mean logprob EV (1–7)", fontsize=7.5)
+            ax.set_ylabel(ylabel, fontsize=7.5)
         if ci >= 2:
             ax.set_xlabel("Stage", fontsize=7.5, labelpad=1)
 
@@ -156,7 +159,24 @@ def fig1(data):
              transform=key.transAxes, fontsize=6, va="top", ha="left",
              color=S.MUTED, linespacing=1.6)
 
-    _save(fig, "Fig1 — EV Trajectory")
+    _save(fig, name)
+
+
+def fig1(data):
+    _trajectory_grid(data["fig1"], data["stage_labels"],
+                     "Mean logprob EV (1–7)", "Fig1 — EV Trajectory",
+                     ylim=(0.3, 7.7), yticks=[1, 3, 5, 7],
+                     star_gap=0.10, star_min_gap=0.30)
+
+
+def fig3(data):
+    """Entropy runs 0–2 bits, so the star offsets that suited the 1–7 EV scale
+    would be an order of magnitude too large here."""
+    _trajectory_grid(data["fig3"], data["stage_labels"],
+                     "Shannon entropy (bits)",
+                     "Fig3 — Belief Entropy Crystallization Trajectories",
+                     ylim=(-0.15, 2.45), yticks=[0, 0.5, 1.0, 1.5, 2.0],
+                     star_gap=0.035, star_min_gap=0.105)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -369,7 +389,270 @@ def fig8(data):
     _save(fig, "Fig8 — Prompt Rigidity 2x2 Interaction")
 
 
-BUILDERS = {"fig1": fig1, "fig2": fig2, "fig5": fig5, "fig8": fig8}
+# ══════════════════════════════════════════════════════════════════════════════
+# Fig 4 — II / SRF heatmap, topology x ratio
+# ══════════════════════════════════════════════════════════════════════════════
+def fig4(data):
+    """Two sequential ramps rather than one diverging map.
+
+    fig2_ii_heatmap() computed a `center` (1.0 for II, 0.5 for SRF) and then
+    never passed it to imshow, so the original was already sequential over the
+    data range despite the diverging colormap name. Centring it now would be
+    worse, not better: II spans 0.73-1.03 and SRF -0.04-0.24, so a map centred
+    on either threshold would collapse almost every cell onto one arm. The
+    thresholds are marked on the cells instead, where they can be read exactly.
+    """
+    d = data["fig4"]
+    specs = [
+        ("internalization_index", "Internalization index", "a",
+         S.RAMP_SLATE, 1.0, "II ≥ 1"),
+        ("shadow_reversion_fraction", "Shadow reversion fraction", "b",
+         S.RAMP_CLAY, 0.5, "SRF ≥ 0.5"),
+    ]
+
+    fig, axes = plt.subplots(1, 2, figsize=(S.WIDTH_2COL, 2.25))
+    fig.subplots_adjust(top=0.86, bottom=0.175, left=0.085, right=0.965,
+                        wspace=0.42)
+
+    for ax, (col, title, letter, cmap, thresh, thresh_label) in zip(axes, specs):
+        m = d[col]
+        mat = np.array([[np.nan if v is None else v for v in row]
+                        for row in m["matrix"]])
+        counts = np.array(m["counts"])
+        vmin, vmax = np.nanmin(mat), np.nanmax(mat)
+
+        im = ax.imshow(mat, aspect="auto", cmap=cmap, vmin=vmin, vmax=vmax,
+                       interpolation="nearest")
+        for ti in range(mat.shape[0]):
+            for ri in range(mat.shape[1]):
+                v = mat[ti, ri]
+                if np.isnan(v):
+                    continue
+                # Contrast against the cell, not against a fixed midpoint.
+                frac = (v - vmin) / (vmax - vmin) if vmax > vmin else 0.5
+                tc = "white" if frac > 0.55 else S.INK
+                ax.text(ri, ti, f"{v:.2f}", ha="center", va="center",
+                        fontsize=7, color=tc, fontweight="semibold")
+                ax.text(ri, ti + 0.30, f"n={counts[ti, ri]:,}", ha="center",
+                        va="center", fontsize=4.8, color=tc, alpha=0.75)
+                if v >= thresh:
+                    # A corner tick marks cells past the meaningful threshold.
+                    ax.plot([ri + 0.36], [ti - 0.34], marker="o", markersize=2,
+                            color=tc, zorder=5)
+
+        ax.set_xticks(range(len(m["ratios"])))
+        ax.set_xticklabels([f"{int(r * 100)}%" for r in m["ratios"]],
+                           fontsize=7)
+        ax.set_yticks(range(len(m["topologies"])))
+        ax.set_yticklabels([S.TOPO_SHORT[t] for t in m["topologies"]],
+                           fontsize=7)
+        for tick, topo in zip(ax.get_yticklabels(), m["topologies"]):
+            tick.set_color(S.TOPO_COLORS[topo])
+            tick.set_fontweight("semibold")
+        ax.set_xlabel("Minority ratio", fontsize=7.5, labelpad=2)
+        ax.grid(False)
+        ax.spines[:].set_visible(False)
+        ax.tick_params(length=0)
+        S.panel_title(ax, title)
+        S.panel_letter(ax, letter, x=-0.20, y=1.04)
+
+        cb = fig.colorbar(im, ax=ax, fraction=0.045, pad=0.03)
+        cb.outline.set_visible(False)
+        cb.ax.tick_params(labelsize=5.5, length=1.5, color=S.SLATE)
+        # Only explain the marker when some cell actually earns one —
+        # "SRF ≥ 0.5" under a panel whose maximum is 0.24 implies a boundary
+        # the data never approach.
+        if np.nanmax(mat) >= thresh:
+            ax.text(0.0, -0.30, f"●  {thresh_label}", transform=ax.transAxes,
+                    fontsize=5, ha="left", va="top", color=S.MUTED)
+
+    _save(fig, "Fig4 — Internalization Index Heatmap (Topology x Ratio)")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Fig 6 — star topology, hub vs leaf
+# ══════════════════════════════════════════════════════════════════════════════
+def fig6(data):
+    """Position is not a topology, so it takes the slate family rather than
+    borrowing a topology hue: leaf light, hub dark."""
+    d = data["fig6"]
+    ratios = d["ratios"]
+    x = np.arange(len(ratios))
+    POS = {0: ("Minority on a leaf", S.STRATEGY_COLORS["rigid:lenient"],
+               S.STRATEGY_EDGES["rigid:lenient"]),
+           1: ("Minority on the hub", S.STRATEGY_COLORS["rigid:rigid"],
+               S.STRATEGY_EDGES["rigid:rigid"])}
+    BW = 0.30
+
+    fig, axes = plt.subplots(1, 2, figsize=(S.WIDTH_2COL, 2.25))
+    fig.subplots_adjust(top=0.86, bottom=0.185, left=0.075, right=0.995,
+                        wspace=0.26)
+
+    for ax, (key, ylabel, title, letter, ref) in zip(axes, [
+        ("shift", "Mean shadow EV shift", "Gatekeeper effect", "a", None),
+        ("ii", "Median internalization index", "Internalization by position",
+         "b", 1.0),
+    ]):
+        for pi, pos in enumerate((0, 1)):
+            label, face, edge = POS[pos]
+            vals = d[key][str(pos)]["values"]
+            ax.bar(x + (pi - 0.5) * BW, vals, width=BW * 0.86, color=face,
+                   edgecolor=edge, linewidth=0.5, label=label, zorder=3)
+            for xi, v in zip(x + (pi - 0.5) * BW, vals):
+                ax.text(xi, v + (0.02 if key == "shift" else 0.012),
+                        f"{v:.2f}", ha="center", va="bottom", fontsize=5.5,
+                        color=S.INK)
+        if ref is not None:
+            ax.axhline(ref, color=S.RULE, linestyle=(0, (3, 3)),
+                       linewidth=0.7, zorder=4)
+            ax.text(-0.46, ref, "full", fontsize=5.5, va="bottom",
+                    ha="left", color=S.MUTED)
+        ax.set_xticks(x)
+        ax.set_xticklabels([f"{int(r * 100)}%" for r in ratios], fontsize=7)
+        ax.set_xlim(-0.5, len(ratios) - 0.5)
+        ax.set_ylim(0, max(max(d[key][str(p)]["values"]) for p in (0, 1)) * 1.22)
+        ax.set_xlabel("Minority ratio", fontsize=7.5, labelpad=2)
+        ax.set_ylabel(ylabel, fontsize=7.5)
+        S.panel(ax)
+        S.panel_title(ax, title)
+        S.panel_letter(ax, letter, x=-0.16, y=1.04)
+
+    axes[0].legend(fontsize=6, frameon=False, loc="upper right",
+                   handlelength=1.1, handletextpad=0.5, borderaxespad=0.2)
+    _save(fig, "Fig6 — Star Topology Hub vs Leaf Position Effect")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Fig 7 — prompt- vs model-induced equivalence
+# ══════════════════════════════════════════════════════════════════════════════
+def fig7(data):
+    """One point per (scenario, topology, ratio) cell.
+
+    Deliberately single-colour. An earlier draft coloured by topology, but the
+    four clouds sit on top of one another — the offset above the identity line
+    is not carried by any one topology — so the colour encoded a distinction
+    the data do not make and read as confetti.
+    """
+    d = data.get("fig7")
+    if not d:
+        print("  (no fig7 data — skipping)")
+        return
+    pi = np.array(d["pi"])
+    mi = np.array(d["mi"])
+    lo = min(pi.min(), mi.min()) - 0.2
+    hi = max(pi.max(), mi.max()) + 0.2
+
+    # Single column (89 mm) and square, since the identity line only reads
+    # correctly at equal aspect.
+    fig, ax = plt.subplots(figsize=(2.95, 2.95))
+    fig.subplots_adjust(top=0.975, bottom=0.155, left=0.175, right=0.98)
+
+    ax.scatter(pi, mi, s=4, alpha=0.45, color=S.STRATEGY_COLORS["rigid:rigid"],
+               edgecolors="none", zorder=3, rasterized=True)
+    ax.plot([lo, hi], [lo, hi], "--", color=S.RULE, linewidth=0.7, zorder=4)
+    # Label the reference line instead of tinting a half-plane: in Fig2 the
+    # tint carries a defined meaning, so an unexplained one here misleads.
+    ax.text(hi - 0.06, hi - 0.06, "equal shift", fontsize=5.5, rotation=45,
+            rotation_mode="anchor", ha="right", va="bottom", color=S.MUTED)
+
+    ax.text(0.04, 0.965,
+            f"$\\it{{r}}$ = {d['r']:.3f}\n$\\it{{p}}$ = {d['p']:.1e}\n"
+            f"$\\it{{n}}$ = {d['n']:,}",
+            transform=ax.transAxes, fontsize=6.5, va="top", ha="left",
+            color=S.INK, linespacing=1.6)
+
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.set_aspect("equal", adjustable="box")
+    ax.set_xticks([0, 1, 2])
+    ax.set_yticks([0, 1, 2])
+    ax.set_xlabel("Prompt-induced: mean shadow shift", fontsize=7)
+    ax.set_ylabel("Model-induced: mean shadow shift", fontsize=7)
+    S.panel(ax, axis=None)
+    ax.grid(True, color=S.GRID, linewidth=0.5, zorder=0)
+    ax.set_axisbelow(True)
+    _save(fig, "Fig7 — Prompt-Induced vs Model-Induced Equivalence")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Fig 9 — semantic mirroring and drift
+# ══════════════════════════════════════════════════════════════════════════════
+def fig9(data):
+    """Dot plot, not grouped bars.
+
+    Mirroring spans 0.47-0.70 and drift 0.33-0.49, so bars anchored at zero
+    spend four fifths of their length in a region that carries no information
+    and compress every real difference into the top sliver. Dots on a tight
+    axis, strung on a per-dataset range rule, put the ink where the variation
+    is — and with the datasets on the y-axis their names set horizontally
+    instead of on a slant.
+    """
+    d = data.get("fig9")
+    if not d:
+        print("  (no fig9 data — skipping)")
+        return
+    src = d["datasets"]
+    order = [ds for ds in S.DATASET_ORDER if ds in src]
+    idx = [src.index(ds) for ds in order]
+    ys = np.arange(len(order))[::-1]          # first dataset at the top
+
+    fig, axes = plt.subplots(1, 2, figsize=(S.WIDTH_2COL, 2.05), sharey=True)
+    fig.subplots_adjust(top=0.80, bottom=0.20, left=0.115, right=0.995,
+                        wspace=0.10)
+
+    for ax, (metric, xlabel, title, letter) in zip(axes, [
+        ("mean_mirroring", "Mean cosine similarity",
+         "Language mirroring (agent \u2194 minority)", "a"),
+        ("mean_semantic_drift", "Mean cosine distance",
+         "Semantic drift (baseline \u2192 final)", "b"),
+    ]):
+        vals = {t: [d[metric][t][i] for i in idx] for t in S.TOPO_ORDER}
+        for j, y in enumerate(ys):
+            row = [vals[t][j] for t in S.TOPO_ORDER if vals[t][j] is not None]
+            if row:
+                # A rule spanning the topologies makes the spread per dataset
+                # legible without adding a second encoding.
+                ax.hlines(y, min(row), max(row), color="#e6eaee",
+                          linewidth=1.4, zorder=1)
+        for t in S.TOPO_ORDER:
+            ax.scatter(vals[t], ys, s=16, color=S.TOPO_COLORS[t],
+                       edgecolor=S.HALO, linewidth=0.6, zorder=4)
+
+        flat = [v for t in S.TOPO_ORDER for v in vals[t] if v is not None]
+        pad = (max(flat) - min(flat)) * 0.12
+        ax.set_xlim(min(flat) - pad, max(flat) + pad)
+        ax.set_ylim(-0.6, len(order) - 0.4)
+        ax.set_xlabel(xlabel, fontsize=7.5, labelpad=2)
+        ax.grid(axis="x", color=S.GRID, linewidth=0.5, zorder=0)
+        ax.set_axisbelow(True)
+        for side in ("bottom", "left"):
+            ax.spines[side].set_color("#9aa5b1")
+        ax.spines["left"].set_visible(False)
+        ax.tick_params(axis="y", length=0)
+        S.panel_title(ax, title)
+        S.panel_letter(ax, letter, x=-0.30 if letter == "a" else -0.06, y=1.06)
+
+    axes[0].set_yticks(ys)
+    axes[0].set_yticklabels([S.DATASET_LABELS.get(ds, ds) for ds in order],
+                            fontsize=7)
+    for lab in axes[0].get_yticklabels():
+        lab.set_color(S.INK)
+
+    handles = [Line2D([], [], marker="o", linestyle="none",
+                      color=S.TOPO_COLORS[t], markeredgecolor=S.HALO,
+                      markeredgewidth=0.6, markersize=4.2,
+                      label=S.TOPO_SHORT[t]) for t in S.TOPO_ORDER]
+    leg = fig.legend(handles=handles, loc="upper right",
+                     bbox_to_anchor=(0.995, 1.015), ncol=4, frameon=False,
+                     fontsize=6.5, handletextpad=0.3, columnspacing=1.1)
+    for txt, t in zip(leg.get_texts(), S.TOPO_ORDER):
+        txt.set_color(S.TOPO_COLORS[t])
+    _save(fig, "Fig9 — Semantic Mirroring and Drift by Topology")
+
+
+BUILDERS = {"fig1": fig1, "fig2": fig2, "fig3": fig3, "fig4": fig4,
+            "fig5": fig5, "fig6": fig6, "fig7": fig7, "fig8": fig8,
+            "fig9": fig9}
 
 
 def main():
