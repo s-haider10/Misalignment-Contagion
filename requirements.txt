@@ -13,3 +13,11 @@ seaborn>=0.12
 
 # vLLM inference server (install separately on GPU nodes)
 # vllm>=0.6.0
+
+# ---------------------------------------------------------------------------
+# A full 184-package snapshot of the dsail3 working environment is recorded in
+# requirements-lock.txt (machine-generated, 2026-08-17). That file is evidence
+# of the exact versions behind the results — it is NOT the file to install
+# from. This one is: the omissions above (vllm, sentence-transformers) are
+# deliberate, since those are installed separately on GPU nodes.
+# ---------------------------------------------------------------------------
