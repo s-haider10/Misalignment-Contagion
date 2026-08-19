@@ -163,7 +163,7 @@ def pct_axis(ax):
 # ══════════════════════════════════════════════════════════════════════════════
 # Misalignment-Contagion additions
 #
-# Purely additive — no name above is redefined, so figures.py is unaffected.
+# Purely additive — no name above is redefined.
 # Two rules govern the palette:
 #   1. Topology hues are reserved for topology. They are the seaborn-deep four
 #      already used by Fig3/4/6/7/9, so a colour means the same thing in every
