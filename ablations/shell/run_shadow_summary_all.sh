@@ -1,9 +1,9 @@
 #!/bin/bash
 # Run shadow_summary_ablation across all 5 datasets, n=50 each.
 set -euo pipefail
-cd /home/haider/Misalignment-Contagion
+cd /home/haider/Projects/active/misalignment-contagion-behavioral
 export PYTHONPATH=.
-PY=/home/haider/Misalignment-Contagion/.venv/bin/python
+PY=/home/haider/Projects/active/misalignment-contagion-behavioral/.venv/bin/python
 
 for ds in synthetic moral_stories harmbench_standard harmbench_contextual harmbench_copyright; do
     echo "==== $(date) :: starting $ds ===="

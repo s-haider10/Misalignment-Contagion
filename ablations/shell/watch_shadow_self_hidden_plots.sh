@@ -4,9 +4,9 @@
 # the comparison/plot script for that dataset and then never touches it
 # again. Exits once all 5 datasets are processed.
 set -euo pipefail
-cd /home/haider/Misalignment-Contagion
+cd /home/haider/Projects/active/misalignment-contagion-behavioral
 export PYTHONPATH=.
-PY=/home/haider/Misalignment-Contagion/.venv/bin/python
+PY=/home/haider/Projects/active/misalignment-contagion-behavioral/.venv/bin/python
 
 DATASETS=(synthetic moral_stories harmbench_standard harmbench_contextual harmbench_copyright)
 MODEL_KEY="qwen-7b-instruct"

@@ -3,9 +3,9 @@
 # The repo is GATED on HuggingFace; this loop retries until access is granted
 # (i.e. until the config.json can be fetched), then launches vLLM and stays up.
 set -uo pipefail
-cd /home/haider/Misalignment-Contagion
+cd /home/haider/Projects/active/misalignment-contagion-behavioral
 export PYTHONPATH=.
-PY=/home/haider/Misalignment-Contagion/.venv/bin/python
+PY=/home/haider/Projects/active/misalignment-contagion-behavioral/.venv/bin/python
 PORT=8000
 LOG_DIR=logs/llama1b_primary_em
 mkdir -p "$LOG_DIR"

@@ -7,7 +7,7 @@ from pathlib import Path
 from huggingface_hub import HfApi
 
 REPO_ID = "s-haider/misalignment-contagion-data"
-ROOT = Path("/home/haider/Misalignment-Contagion/outputs")
+ROOT = Path("/home/haider/Projects/active/misalignment-contagion-behavioral/outputs")
 
 FILES = [
     "prompt_sensitivity/harmbench_standard/qwen-7b-instruct/results.jsonl",

@@ -13,9 +13,9 @@
 #
 # Per type: synthetic (1050) + harmbench_copyright (2100) = 3150 trials.
 set -uo pipefail
-cd /home/haider/Misalignment-Contagion
+cd /home/haider/Projects/active/misalignment-contagion-behavioral
 export PYTHONPATH=.
-PY=/home/haider/Misalignment-Contagion/.venv/bin/python
+PY=/home/haider/Projects/active/misalignment-contagion-behavioral/.venv/bin/python
 LOG_DIR=logs/new_misalignments
 mkdir -p "$LOG_DIR"
 

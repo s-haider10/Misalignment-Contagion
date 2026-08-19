@@ -1,9 +1,9 @@
 #!/bin/bash
 # k0_baseline on 4 datasets using Qwen-0.5B-Instruct on GPU 1 (port 8001).
 set -euo pipefail
-cd /home/haider/Misalignment-Contagion
+cd /home/haider/Projects/active/misalignment-contagion-behavioral
 export PYTHONPATH=.
-PY=/home/haider/Misalignment-Contagion/.venv/bin/python
+PY=/home/haider/Projects/active/misalignment-contagion-behavioral/.venv/bin/python
 
 for ds in moral_stories harmbench_standard harmbench_contextual harmbench_copyright; do
     echo "==== $(date) :: k0/0.5B starting $ds ===="

@@ -18,9 +18,9 @@
 #     GPU 3     = Qwen2.5-7B-Instruct + misaligned LoRA         -> port 8003
 # The model is identical across all 3 settings, so we launch the servers once.
 set -uo pipefail
-cd /home/haider/Misalignment-Contagion
+cd /home/haider/Projects/active/misalignment-contagion-behavioral
 export PYTHONPATH=.
-PY=/home/haider/Misalignment-Contagion/.venv/bin/python
+PY=/home/haider/Projects/active/misalignment-contagion-behavioral/.venv/bin/python
 LOG_DIR=logs/qwen7b_NK_scaling
 mkdir -p "$LOG_DIR"
 

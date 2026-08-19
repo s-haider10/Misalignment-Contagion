@@ -10,9 +10,9 @@
 #   misaligned agents -> clients[3]      (GPU 3, base + misaligned LoRA, :8003)
 #   aligned agents    -> clients[hash%3] (GPU 0-2, plain base, :8000-8002)
 set -uo pipefail
-cd /home/haider/Misalignment-Contagion
+cd /home/haider/Projects/active/misalignment-contagion-behavioral
 export PYTHONPATH=.
-PY=/home/haider/Misalignment-Contagion/.venv/bin/python
+PY=/home/haider/Projects/active/misalignment-contagion-behavioral/.venv/bin/python
 LOG_DIR=logs/llama1b_primary_em
 mkdir -p "$LOG_DIR"
 

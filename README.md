@@ -30,20 +30,21 @@ misalignment_contagion/        Core experiment package
 │   llm.py, io_utils.py,       I/O utilities, metrics computation, analysis, plotting
 │   config.py, metrics.py,
 │   analyze.py, plots.py
-├── mech_interp/               Mechanistic-interpretability follow-on (see README inside)
-│   ├── extract_activations.py
-│   ├── llm_steered.py
-│   ├── probes/                Probe-sweep + direction-finding
-│   ├── steering/              Steering experiments (run + alpha-sweep)
-│   └── analysis/              Steering result analyzers, projection, sanity checks
-└── graph_features/            Graph-features → contagion-outcome regression (WIP)
+└── analyze.py, plots.py       Metric aggregation and figure helpers
 
 ablations/                     Ablation analyses (compare runs from run_extra.py)
 ├── compare_k0_vs_primary.py
 ├── compare_shadow_summary_vs_primary.py
 ├── test_shadow_ablation_significance.py
 ├── bimodality_diagnostic.py
+├── build_reviewer_tables.py, build_requested_tables.py
 └── shell/                     Launchers that orchestrate run_extra.py across datasets
+
+cameraReady/                   Camera-ready figure pipeline (Fig0–Fig9) + model table
+├── paper_figs.py, figures.py  Figure builders
+├── paper_data.py              Cached aggregation layer (.fig_cache/)
+├── fig_topologies.py          NetworkX topology diagrams for Fig0
+└── Figures/, tables/          Rendered PDFs/PNGs and model_comparison.tex
 
 scripts/                       Top-level utilities
 ├── run_all.sh                 Master orchestrator for the paper
@@ -61,9 +62,22 @@ plots_tables/
 ├── tables/paper/              Paper-ready summary tables
 ├── tables/raw/                Full metric CSVs per phase
 ├── k0_stances/, k0_vs_primary/, shadow_summary_vs_primary/   Ablation outputs
-
-scratch/                       Superseded explorations + diagnostics (provenance only — see README inside)
+├── shadow_no_stance_vs_primary/, shadow_self_hidden_vs_primary/
+└── reviewer/, dose_response/, scaling_laws/, llama_variants/  Rebuttal tables
 ```
+
+## Sibling projects
+
+Two follow-on threads were split out of this repo into standalone silos; neither
+is part of this repo or its upstream.
+
+| Thread | Location |
+|---|---|
+| Mechanistic interpretability (probes, steering directions) | `../misalignment-contagion-mechinterp/` |
+| NetworkX graph-feature → contagion regression | `../misalignment-contagion-graphs/` |
+
+Both consume `outputs/primary_em/` produced here; each holds its own copy, so
+the three run independently.
 
 ## Models
 

@@ -2,9 +2,9 @@
 # Run k0_baseline on the 4 datasets other than synthetic, n=50 each.
 # Waits for the shadow_summary job (PID passed as $1) to finish first.
 set -euo pipefail
-cd /home/haider/Misalignment-Contagion
+cd /home/haider/Projects/active/misalignment-contagion-behavioral
 export PYTHONPATH=.
-PY=/home/haider/Misalignment-Contagion/.venv/bin/python
+PY=/home/haider/Projects/active/misalignment-contagion-behavioral/.venv/bin/python
 
 WAIT_PID="${1:-}"
 if [[ -n "$WAIT_PID" ]]; then

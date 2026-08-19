@@ -2,9 +2,9 @@
 # Run shadow_no_stance_ablation across all 5 datasets, n=50 each.
 # Waits for an upstream PID to finish first (passed as $1).
 set -euo pipefail
-cd /home/haider/Misalignment-Contagion
+cd /home/haider/Projects/active/misalignment-contagion-behavioral
 export PYTHONPATH=.
-PY=/home/haider/Misalignment-Contagion/.venv/bin/python
+PY=/home/haider/Projects/active/misalignment-contagion-behavioral/.venv/bin/python
 
 WAIT_PID="${1:-}"
 if [[ -n "$WAIT_PID" ]]; then

@@ -22,6 +22,13 @@ Top-level orchestration and utility scripts.
   - `reserve_gpu.py` — holds a GPU by allocating a small tensor (prevents another tenant from grabbing it).
   - `grab_gpu_when_free.sh` — waits for an upstream PID to exit, then launches `reserve_gpu.py`.
 
+## Additional run launchers
+- `run_llama1b_primary_em.sh`, `run_llama1b_primary_em_both.sh`, `serve_llama1b_when_ready.sh` — Llama-3.2-1B primary_em runs.
+- `run_qwen7b_NK_scaling.sh` — N×K scaling sweep (writes `outputs/primary_em_N*`).
+- `run_new_misalignments.sh` — extreme-sports and bad-medical-advice LoRAs.
+- `run_llama_x_qwen.sh` — cross-family runner (Llama aligned majority, Qwen misaligned minority).
+
 ## Related directories
 - Ablation comparison scripts: [`ablations/`](../ablations/)
-- Mech-interp entry points: [`misalignment_contagion/mech_interp/`](../misalignment_contagion/mech_interp/)
+- Camera-ready figures: [`cameraReady/`](../cameraReady/)
+- Mech-interp and graph-feature entry points now live in sibling repos — see the "Sibling projects" table in the [top-level README](../README.md).

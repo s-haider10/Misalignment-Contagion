@@ -4,7 +4,7 @@
 #
 # Usage: grab_gpu_when_free.sh <watch_pid> <cuda_device>
 set -euo pipefail
-cd /home/haider/Misalignment-Contagion
+cd /home/haider/Projects/active/misalignment-contagion-behavioral
 
 WATCH_PID="$1"
 GPU="$2"
@@ -19,8 +19,8 @@ done
 
 echo "[$(date)] PID $WATCH_PID exited; launching reservation on GPU $GPU" | tee -a "$LOG"
 CUDA_VISIBLE_DEVICES="$GPU" nohup \
-    /home/haider/Misalignment-Contagion/.venv/bin/python \
-    /home/haider/Misalignment-Contagion/scripts/gpu_helpers/reserve_gpu.py 0 \
+    /home/haider/Projects/active/misalignment-contagion-behavioral/.venv/bin/python \
+    /home/haider/Projects/active/misalignment-contagion-behavioral/scripts/gpu_helpers/reserve_gpu.py 0 \
     > "/tmp/gpu_reserve_logs/gpu${GPU}.log" 2>&1 &
 RESERVE_PID=$!
 echo "[$(date)] reservation PID $RESERVE_PID on GPU $GPU" | tee -a "$LOG"
