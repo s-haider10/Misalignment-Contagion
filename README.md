@@ -74,7 +74,7 @@ is part of this repo or its upstream.
 | Thread | Location |
 |---|---|
 | Mechanistic interpretability (probes, steering directions) | `../misalignment-contagion-mechinterp/` |
-| NetworkX graph-feature → contagion regression | `../misalignment-contagion-graphs/` |
+| NetworkX graph-feature → contagion regression | `../topology-of-alignment/` |
 
 Both consume `outputs/primary_em/` produced here; each holds its own copy, so
 the three run independently.
